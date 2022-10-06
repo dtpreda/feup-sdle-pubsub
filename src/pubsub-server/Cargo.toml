@@ -4,3 +4,4 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+zmq = { git = "https://github.com/erickt/rust-zmq", rev = "92c638a5890a3278830590a2020758514ea369be" }
