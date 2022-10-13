@@ -1,0 +1,2 @@
+[workspace]
+members = ["pubsub-client", "pubsub-server"]

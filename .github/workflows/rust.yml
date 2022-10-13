@@ -1,0 +1,55 @@
+name: Rust CI
+
+on:
+  pull_request:
+  push:
+      branches:
+        - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rustfmt_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: rustfmt
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --manifest-path src/Cargo.toml --all -- --check
+
+  clippy_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: clippy
+          override: true
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --manifest-path src/Cargo.toml --workspace
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --manifest-path src/Cargo.toml --workspace
