@@ -1,4 +1,8 @@
+mod server;
+
 use clap::Parser;
+
+use crate::server::Server;
 
 #[derive(Parser)]
 struct Args {
@@ -8,5 +12,7 @@ struct Args {
 
 fn main() -> Result<(), zmq::Error> {
     let args = Args::parse();
+    let mut server = Server::new(args.port)?;
+    server.run();
     Ok(())
 }
