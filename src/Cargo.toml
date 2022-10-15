@@ -1,2 +1,2 @@
 [workspace]
-members = ["pubsub-client", "pubsub-server"]
+members = ["pubsub-client", "pubsub-server", "pubsub-common"]
