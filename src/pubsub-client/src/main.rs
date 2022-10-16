@@ -19,7 +19,7 @@ enum Operation {
     #[command(name = "put")]
     Put(MessageOperationArgs),
     #[command(name = "get")]
-    Get(MessageOperationArgs),
+    Get(TopicOperationArgs),
 }
 
 // The common args should really be up in the Args struct, not sure why it does not work there
@@ -27,10 +27,10 @@ enum Operation {
 struct TopicOperationArgs {
     #[arg(short, long)]
     topic: String,
-    #[arg(short, long)]
+    #[arg(long)]
     id: String,
-    #[arg(short, long, default_value_t = 5555)]
-    port: u16,
+    #[arg(long)]
+    ip: Option<String>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -39,10 +39,10 @@ struct MessageOperationArgs {
     topic: String,
     #[arg(short, long)]
     message: String,
-    #[arg(short, long)]
+    #[arg(long)]
     id: String,
-    #[arg(short, long, default_value_t = 5555)]
-    port: u16,
+    #[arg(long)]
+    ip: Option<String>,
 }
 
 fn main() {
@@ -53,7 +53,7 @@ fn main() {
         Operation::Subscribe(args) => Client::new(
             client::OperationType::Subscribe,
             args.id,
-            args.port,
+            args.ip,
             args.topic,
             None,
         )
@@ -61,7 +61,7 @@ fn main() {
         Operation::Unsubscribe(args) => Client::new(
             client::OperationType::Unsubscribe,
             args.id,
-            args.port,
+            args.ip,
             args.topic,
             None,
         )
@@ -69,18 +69,20 @@ fn main() {
         Operation::Put(args) => Client::new(
             client::OperationType::Put,
             args.id,
-            args.port,
+            args.ip,
             args.topic,
             Option::Some(args.message),
         )
         .unwrap(),
-        Operation::Get(args) => Client::new(
-            client::OperationType::Put,
-            args.id,
-            args.port,
-            args.topic,
-            Option::Some(args.message),
-        )
+        Operation::Get(args) => {
+            Client::new(
+                client::OperationType::Get,
+                args.id,
+                args.ip,
+                args.topic,
+                None,
+            )
+        }
         .unwrap(),
     };
 
