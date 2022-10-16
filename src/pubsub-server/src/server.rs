@@ -2,14 +2,14 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 use pubsub_common::{
-    GetResponse, Message, PutResponse, Request, SubscribeResponse, SubscriberId, Topic,
+    GetResponse, Message, PutResponse, Request, SubscribeResponse, ClientId, Topic,
     UnsubscribeResponse,
 };
 
 pub struct Server {
     socket: zmq::Socket,
-    queue: HashMap<SubscriberId, VecDeque<Rc<Message>>>,
-    subscriptions: HashMap<Topic, HashSet<SubscriberId>>,
+    queue: HashMap<ClientId, VecDeque<Rc<Message>>>,
+    subscriptions: HashMap<Topic, HashSet<ClientId>>,
 }
 
 impl Server {
@@ -58,7 +58,7 @@ impl Server {
         PutResponse {}
     }
 
-    fn get(&mut self, subscriber: SubscriberId, topic: Topic) -> GetResponse {
+    fn get(&mut self, subscriber: ClientId, topic: Topic) -> GetResponse {
         match self.subscriptions.get(&topic) {
             Some(set) if set.contains(&subscriber) => {}
             _ => return GetResponse::NotSubscribed,
@@ -80,7 +80,7 @@ impl Server {
         }
     }
 
-    fn subscribe(&mut self, subscriber: SubscriberId, topic: Topic) -> SubscribeResponse {
+    fn subscribe(&mut self, subscriber: ClientId, topic: Topic) -> SubscribeResponse {
         if !self.queue.contains_key(&subscriber) {
             self.queue.insert(subscriber.to_owned(), VecDeque::new());
         }
@@ -93,7 +93,7 @@ impl Server {
         }
     }
 
-    fn unsubscribe(&mut self, subscriber: SubscriberId, topic: Topic) -> UnsubscribeResponse {
+    fn unsubscribe(&mut self, subscriber: ClientId, topic: Topic) -> UnsubscribeResponse {
         let set = match self.subscriptions.get_mut(&topic) {
             Some(set) => set,
             None => return UnsubscribeResponse::NotSubscribed,
