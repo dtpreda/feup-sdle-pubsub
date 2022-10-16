@@ -4,14 +4,14 @@ pub type Topic = String;
 pub type ClientId = String;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Message {
+pub struct MessagePayload {
     pub topic: Topic,
     pub data: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
-    Put(Message),
+    Put(MessagePayload),
     Get(ClientId, Topic),
     Subscribe(ClientId, Topic),
     Unsubscribe(ClientId, Topic),
@@ -22,7 +22,7 @@ pub struct PutResponse;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GetResponse {
-    Ok(Message),
+    Ok(MessagePayload),
     NotSubscribed,
     NoMessageAvailable,
 }

@@ -2,13 +2,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 use pubsub_common::{
-    GetResponse, Message, PutResponse, Request, SubscribeResponse, ClientId, Topic,
+    ClientId, GetResponse, MessagePayload, PutResponse, Request, SubscribeResponse, Topic,
     UnsubscribeResponse,
 };
 
 pub struct Server {
     socket: zmq::Socket,
-    queue: HashMap<ClientId, VecDeque<Rc<Message>>>,
+    queue: HashMap<ClientId, VecDeque<Rc<MessagePayload>>>,
     subscriptions: HashMap<Topic, HashSet<ClientId>>,
 }
 
@@ -17,6 +17,7 @@ impl Server {
         let context = zmq::Context::new();
         let socket = context.socket(zmq::SocketType::REP)?;
         socket.bind(&format!("tcp://*:{}", port))?;
+        println!("Service will listen on port {}", port);
 
         Ok(Server {
             socket,
@@ -44,7 +45,7 @@ impl Server {
         }
     }
 
-    fn put(&mut self, message: Message) -> PutResponse {
+    fn put(&mut self, message: MessagePayload) -> PutResponse {
         if let Some(subscriber_set) = self.subscriptions.get(&message.topic) {
             let msg_rc = Rc::new(message);
             for subscriber in subscriber_set {

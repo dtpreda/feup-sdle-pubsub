@@ -1,90 +1,60 @@
 mod client;
 
 use clap::Parser;
+use client::OperationType;
 
 use crate::client::Client;
 
-#[derive(clap::Parser, Debug)]
+#[derive(clap::Parser)]
 struct Args {
     #[command(subcommand)]
-    operation: Operation,
+    /// The operation to execute on the service.
+    operation: OperationCommand,
+
+    #[arg(short, long)]
+    /// The topic this action is related to.
+    topic: String,
+
+    #[arg(short, long)]
+    /// The client id used for subscriptions.
+    id: String,
+
+    #[arg(short, long, default_value_t = String::from("tcp://localhost:5555"))]
+    /// The service url.
+    url: String,
 }
 
 #[derive(clap::Subcommand, Debug)]
-enum Operation {
+enum OperationCommand {
     #[command(name = "subscribe")]
-    Subscribe(TopicOperationArgs),
+    Subscribe,
+
     #[command(name = "unsubscribe")]
-    Unsubscribe(TopicOperationArgs),
+    Unsubscribe,
+
     #[command(name = "put")]
-    Put(MessageOperationArgs),
+    Put {
+        #[arg(short, long)]
+        message: String,
+    },
+
     #[command(name = "get")]
-    Get(TopicOperationArgs),
+    Get,
 }
 
-// The common args should really be up in the Args struct, not sure why it does not work there
-#[derive(clap::Args, Debug)]
-struct TopicOperationArgs {
-    #[arg(short, long)]
-    topic: String,
-    #[arg(long)]
-    id: String,
-    #[arg(long)]
-    ip: Option<String>,
-}
-
-#[derive(clap::Args, Debug)]
-struct MessageOperationArgs {
-    #[arg(short, long)]
-    topic: String,
-    #[arg(short, long)]
-    message: String,
-    #[arg(long)]
-    id: String,
-    #[arg(long)]
-    ip: Option<String>,
-}
-
-fn main() {
+fn main() -> Result<(), zmq::Error> {
     let args = Args::parse();
-    println!("{:#?}", args);
 
-    let mut client: Client = match args.operation {
-        Operation::Subscribe(args) => Client::new(
-            client::OperationType::Subscribe,
-            args.id,
-            args.ip,
-            args.topic,
-            None,
-        )
-        .unwrap(),
-        Operation::Unsubscribe(args) => Client::new(
-            client::OperationType::Unsubscribe,
-            args.id,
-            args.ip,
-            args.topic,
-            None,
-        )
-        .unwrap(),
-        Operation::Put(args) => Client::new(
-            client::OperationType::Put,
-            args.id,
-            args.ip,
-            args.topic,
-            Option::Some(args.message),
-        )
-        .unwrap(),
-        Operation::Get(args) => {
-            Client::new(
-                client::OperationType::Get,
-                args.id,
-                args.ip,
-                args.topic,
-                None,
-            )
-        }
-        .unwrap(),
+    let (operation_type, message): (OperationType, Option<String>) = match args.operation {
+        OperationCommand::Subscribe => (OperationType::Subscribe, None),
+        OperationCommand::Unsubscribe => (OperationType::Unsubscribe, None),
+        OperationCommand::Put { message } => (OperationType::Put, Some(message)),
+        OperationCommand::Get => (OperationType::Get, None),
     };
 
+    let mut client = Client::new(operation_type, args.id, args.url, args.topic, message)?;
+
     client.execute();
+
+    Ok(())
 }
