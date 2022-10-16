@@ -1,9 +1,7 @@
 mod client;
 
 use clap::Parser;
-use client::OperationType;
-
-use crate::client::Client;
+use client::{service_execute, OperationType};
 
 #[derive(clap::Parser)]
 struct Args {
@@ -52,9 +50,7 @@ fn main() -> Result<(), zmq::Error> {
         OperationCommand::Get => (OperationType::Get, None),
     };
 
-    let mut client = Client::new(operation_type, args.id, args.url, args.topic, message)?;
-
-    client.execute();
+    service_execute(operation_type, args.id, args.url, args.topic, message)?;
 
     Ok(())
 }

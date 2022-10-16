@@ -1,20 +1,20 @@
 use serde::{Deserialize, Serialize};
 
 pub type Topic = String;
-pub type ClientId = String;
+pub type SubscriberId = String;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MessagePayload {
+pub struct Message {
     pub topic: Topic,
     pub data: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
-    Put(MessagePayload),
-    Get(ClientId, Topic),
-    Subscribe(ClientId, Topic),
-    Unsubscribe(ClientId, Topic),
+    Put(Message),
+    Get(SubscriberId, Topic),
+    Subscribe(SubscriberId, Topic),
+    Unsubscribe(SubscriberId, Topic),
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -22,7 +22,7 @@ pub struct PutResponse;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GetResponse {
-    Ok(MessagePayload),
+    Ok(Message),
     NotSubscribed,
     NoMessageAvailable,
 }

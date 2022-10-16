@@ -2,14 +2,14 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 use pubsub_common::{
-    ClientId, GetResponse, MessagePayload, PutResponse, Request, SubscribeResponse, Topic,
+    GetResponse, Message, PutResponse, Request, SubscribeResponse, SubscriberId, Topic,
     UnsubscribeResponse,
 };
 
 pub struct Server {
     socket: zmq::Socket,
-    queue: HashMap<ClientId, VecDeque<Rc<MessagePayload>>>,
-    subscriptions: HashMap<Topic, HashSet<ClientId>>,
+    queue: HashMap<SubscriberId, VecDeque<Rc<Message>>>,
+    subscriptions: HashMap<Topic, HashSet<SubscriberId>>,
 }
 
 impl Server {
@@ -45,7 +45,7 @@ impl Server {
         }
     }
 
-    fn put(&mut self, message: MessagePayload) -> PutResponse {
+    fn put(&mut self, message: Message) -> PutResponse {
         if let Some(subscriber_set) = self.subscriptions.get(&message.topic) {
             let msg_rc = Rc::new(message);
             for subscriber in subscriber_set {
@@ -59,7 +59,7 @@ impl Server {
         PutResponse {}
     }
 
-    fn get(&mut self, subscriber: ClientId, topic: Topic) -> GetResponse {
+    fn get(&mut self, subscriber: SubscriberId, topic: Topic) -> GetResponse {
         match self.subscriptions.get(&topic) {
             Some(set) if set.contains(&subscriber) => {}
             _ => return GetResponse::NotSubscribed,
@@ -81,7 +81,7 @@ impl Server {
         }
     }
 
-    fn subscribe(&mut self, subscriber: ClientId, topic: Topic) -> SubscribeResponse {
+    fn subscribe(&mut self, subscriber: SubscriberId, topic: Topic) -> SubscribeResponse {
         if !self.queue.contains_key(&subscriber) {
             self.queue.insert(subscriber.to_owned(), VecDeque::new());
         }
@@ -94,7 +94,7 @@ impl Server {
         }
     }
 
-    fn unsubscribe(&mut self, subscriber: ClientId, topic: Topic) -> UnsubscribeResponse {
+    fn unsubscribe(&mut self, subscriber: SubscriberId, topic: Topic) -> UnsubscribeResponse {
         let set = match self.subscriptions.get_mut(&topic) {
             Some(set) => set,
             None => return UnsubscribeResponse::NotSubscribed,
