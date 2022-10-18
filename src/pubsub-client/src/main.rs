@@ -1,7 +1,7 @@
 mod client;
 
 use clap::{command, Parser, Subcommand};
-use client::service_execute;
+use client::perform_operation;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -62,6 +62,6 @@ pub enum Operation {
 
 fn main() -> Result<(), zmq::Error> {
     let args = Args::parse();
-    service_execute(args.url, args.operation)?;
+    perform_operation(args.url, args.operation)?;
     Ok(())
 }
