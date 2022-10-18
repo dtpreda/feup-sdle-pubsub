@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 pubsub-common = { path = "../pubsub-common" }
 serde_json = "1"
 zmq = { git = "https://github.com/erickt/rust-zmq", rev = "92c638a5890a3278830590a2020758514ea369be" }

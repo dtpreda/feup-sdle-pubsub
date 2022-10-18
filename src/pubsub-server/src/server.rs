@@ -17,6 +17,7 @@ impl Server {
         let context = zmq::Context::new();
         let socket = context.socket(zmq::SocketType::REP)?;
         socket.bind(&format!("tcp://*:{}", port))?;
+        println!("Service will listen on port {}", port);
 
         Ok(Server {
             socket,
