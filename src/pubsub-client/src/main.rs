@@ -1,56 +1,67 @@
 mod client;
 
-use clap::Parser;
-use client::{service_execute, OperationType};
+use clap::{command, Parser, Subcommand};
+use client::service_execute;
 
-#[derive(clap::Parser)]
+#[derive(Parser, Debug)]
 struct Args {
-    #[command(subcommand)]
-    /// The operation to execute on the service.
-    operation: OperationCommand,
-
-    #[arg(short, long)]
-    /// The topic this action is related to.
-    topic: String,
-
-    #[arg(short, long)]
-    /// The client id used for subscriptions.
-    id: String,
-
-    #[arg(short, long, default_value_t = String::from("tcp://localhost:5555"))]
-    /// The service url.
+    /// The URL of the server.
+    #[arg(
+        short,
+        long,
+        env = "SERVER_URL",
+        default_value = "tcp://localhost:5555"
+    )]
     url: String,
+
+    /// The desired operation.
+    #[command(subcommand)]
+    operation: Operation,
 }
 
-#[derive(clap::Subcommand, Debug)]
-enum OperationCommand {
-    #[command(name = "subscribe")]
-    Subscribe,
-
-    #[command(name = "unsubscribe")]
-    Unsubscribe,
-
-    #[command(name = "put")]
+#[derive(Subcommand, Debug)]
+#[command(infer_subcommands = true)]
+pub enum Operation {
     Put {
+        /// The topic to publish to.
+        #[arg(short, long)]
+        topic: String,
+
+        /// The message to publish (read from standard input).
         #[arg(short, long)]
         message: String,
     },
+    Get {
+        /// The ID of the subscriber.
+        #[arg(short, long, env = "SUBSCRIBER_ID")]
+        id: String,
 
-    #[command(name = "get")]
-    Get,
+        /// Topic to fetch.
+        #[arg(short, long)]
+        topic: String,
+    },
+    Subscribe {
+        /// The ID of the subscriber.
+        #[arg(short, long, env = "SUBSCRIBER_ID")]
+        id: String,
+
+        /// Topic to subscribe to.
+        #[arg(short, long)]
+        topic: String,
+    },
+    Unsubscribe {
+        /// The ID of the subscriber.
+        #[arg(short, long, env = "SUBSCRIBER_ID")]
+        id: String,
+
+        /// Topic to unsubscribe from.
+        #[arg(short, long)]
+        topic: String,
+    },
 }
 
 fn main() -> Result<(), zmq::Error> {
     let args = Args::parse();
-
-    let (operation_type, message): (OperationType, Option<String>) = match args.operation {
-        OperationCommand::Subscribe => (OperationType::Subscribe, None),
-        OperationCommand::Unsubscribe => (OperationType::Unsubscribe, None),
-        OperationCommand::Put { message } => (OperationType::Put, Some(message)),
-        OperationCommand::Get => (OperationType::Get, None),
-    };
-
-    service_execute(operation_type, args.id, args.url, args.topic, message)?;
-
+    service_execute(args.url, args.operation)?;
     Ok(())
 }

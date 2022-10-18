@@ -1,51 +1,32 @@
 use pubsub_common::{
-    GetResponse, Message, PutResponse, Request, SubscribeResponse, SubscriberId, Topic,
-    UnsubscribeResponse,
+    GetResponse, Message, PutResponse, Request, SubscribeResponse, UnsubscribeResponse,
 };
 
-#[derive(Copy, Clone)]
-pub enum OperationType {
-    Put,
-    Get,
-    Subscribe,
-    Unsubscribe,
-}
+use super::Operation;
 
-pub fn service_execute(
-    operation_type: OperationType,
-    id: SubscriberId,
-    url: String,
-    topic: Topic,
-    message: Option<String>,
-) -> Result<(), zmq::Error> {
+pub fn service_execute(url: String, operation: Operation) -> Result<(), zmq::Error> {
     let context = zmq::Context::new();
     let socket = context.socket(zmq::SocketType::REQ)?;
     socket
         .connect(&url)
         .expect("Service is unavailable: could not connect");
 
-    send_action(operation_type, id, topic, message, &socket)?;
-
-    receive_action_response(operation_type, &socket)?;
-
+    send_action(&operation, &socket)?;
+    receive_action_response(&operation, &socket)?;
     Ok(())
 }
 
-fn send_action(
-    operation_type: OperationType,
-    id: SubscriberId,
-    topic: Topic,
-    message: Option<String>,
-    socket: &zmq::Socket,
-) -> Result<(), zmq::Error> {
-    let request: Request = match operation_type {
-        OperationType::Put => Request::Put(Message {
-            topic: topic,
-            data: message.unwrap().into_bytes(),
+fn send_action(operation: &Operation, socket: &zmq::Socket) -> Result<(), zmq::Error> {
+    let request: Request = match operation {
+        Operation::Put { topic, message } => Request::Put(Message {
+            topic: topic.to_string(),
+            data: message.clone().into_bytes(),
         }),
-        OperationType::Get => Request::Get(id, topic),
-        OperationType::Subscribe => Request::Subscribe(id, topic),
-        OperationType::Unsubscribe => Request::Unsubscribe(id, topic),
+        Operation::Get { id, topic } => Request::Get(id.to_string(), topic.to_string()),
+        Operation::Subscribe { id, topic } => Request::Subscribe(id.to_string(), topic.to_string()),
+        Operation::Unsubscribe { id, topic } => {
+            Request::Unsubscribe(id.to_string(), topic.to_string())
+        }
     };
 
     let data: Vec<u8> = serde_json::to_vec(&request).unwrap();
@@ -54,22 +35,23 @@ fn send_action(
     Ok(())
 }
 
-fn receive_action_response(
-    operation_type: OperationType,
-    socket: &zmq::Socket,
-) -> Result<(), zmq::Error> {
+fn receive_action_response(operation: &Operation, socket: &zmq::Socket) -> Result<(), zmq::Error> {
     let mut message = zmq::Message::new();
     socket
         .recv(&mut message, 0)
         .expect("No response from server");
 
-    match operation_type {
-        OperationType::Put => process_put(serde_json::from_slice::<PutResponse>(&message).unwrap()),
-        OperationType::Get => process_get(serde_json::from_slice::<GetResponse>(&message).unwrap()),
-        OperationType::Subscribe => {
+    match operation {
+        Operation::Put { .. } => {
+            process_put(serde_json::from_slice::<PutResponse>(&message).unwrap())
+        }
+        Operation::Get { .. } => {
+            process_get(serde_json::from_slice::<GetResponse>(&message).unwrap())
+        }
+        Operation::Subscribe { .. } => {
             process_subscribe(serde_json::from_slice::<SubscribeResponse>(&message).unwrap())
         }
-        OperationType::Unsubscribe => {
+        Operation::Unsubscribe { .. } => {
             process_unsubscribe(serde_json::from_slice::<UnsubscribeResponse>(&message).unwrap())
         }
     }
