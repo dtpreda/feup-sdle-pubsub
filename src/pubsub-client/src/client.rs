@@ -23,7 +23,6 @@ pub fn perform_operation(url: String, operation: Operation) -> Result<(), zmq::E
     let client_sequences : HashMap<Topic, HashMap<SubscriberId, SequenceNumber>> = match serde_json::from_reader(&mut client_sequences_file) {
         Ok(client_sequences) => client_sequences,
         Err(_) => {
-            println!("Could not read client_sequences.json");    
             HashMap::new()
         },
     };

@@ -61,7 +61,7 @@ impl Server {
         PutResponse {}
     }
 
-    fn get(&mut self, subscriber: SubscriberId, topic: Topic, sequence_number: SequenceNumber) -> GetResponse {
+    fn get(&mut self, subscriber: SubscriberId, topic: Topic, requested_sequence_number: SequenceNumber) -> GetResponse {
         match self.subscriptions.get(&topic) {
             Some(set) if set.contains(&subscriber) => {}
             _ => return GetResponse::NotSubscribed,
@@ -69,28 +69,30 @@ impl Server {
 
         match self.client_sequences.get(&topic) {
             Some(map) if map.contains_key(&subscriber) => {
-                let client_sequence = map.get(&subscriber).unwrap();
+                let server_side_sequence_number = map.get(&subscriber).unwrap();
                 match self.queue.get_mut(&subscriber) {
                     Some(queue) => {
-                        if sequence_number == *client_sequence && *client_sequence != 0{
-                            let index = queue
-                            .iter()
-                            .enumerate()
-                            .find(|(_, msg)| msg.topic == topic)
-                            .map(|(i, _)| i);
-                            match index {
-                                Some(i) => {
-                                    queue.remove(i);
-                                }
-                                None => { return GetResponse::NoMessageAvailable; }
-                            };
-                        } else if *client_sequence != 0 && sequence_number != *client_sequence - 1{
-                            return GetResponse::InvalidSequenceNumber(*client_sequence);
+                        let is_first_message = *server_side_sequence_number == 0;
+                        if !is_first_message {
+                            if requested_sequence_number == *server_side_sequence_number && queue.len() > 1 {
+                                let index = queue
+                                .iter()
+                                .enumerate()
+                                .find(|(_, msg)| msg.topic == topic)
+                                .map(|(i, _)| i);
+                                match index {
+                                    Some(i) => {
+                                        queue.remove(i);
+                                    }
+                                    None => { return GetResponse::NoMessageAvailable; }
+                                };
+                            } else if requested_sequence_number == *server_side_sequence_number {
+                                return GetResponse::NoMessageAvailable;
+                            } else if requested_sequence_number != *server_side_sequence_number - 1 {
+                                return GetResponse::InvalidSequenceNumber(*server_side_sequence_number);
+                            } 
                         }
-
-                        let client_sequence = self.client_sequences.get_mut(&topic).unwrap();
-                        client_sequence.insert(subscriber.clone(), sequence_number + 1);
-                        
+    
                         let index = queue
                             .iter()
                             .enumerate()
@@ -98,11 +100,13 @@ impl Server {
                             .map(|(i, _)| i);
                         match index {
                             Some(i) => {
-                                GetResponse::Ok(SequentialMessage {message: queue.get(i).unwrap().as_ref().clone(), sequence_number: sequence_number + 1})
+                                let server_side_sequence_number = self.client_sequences.get_mut(&topic).unwrap();
+                                server_side_sequence_number.insert(subscriber.clone(), requested_sequence_number + 1);
+                                GetResponse::Ok(SequentialMessage {message: queue.get(i).unwrap().as_ref().clone(), sequence_number: requested_sequence_number + 1})
                             }
                             None => {
-                                println!("No message available {:?}", *client_sequence);
-                                GetResponse::NoMessageAvailable},
+                                GetResponse::NoMessageAvailable
+                            },
                         }
                     }
                     None => GetResponse::NoMessageAvailable,
