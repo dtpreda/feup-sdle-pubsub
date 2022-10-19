@@ -38,3 +38,6 @@ pub enum UnsubscribeResponse {
     Ok,
     NotSubscribed,
 }
+
+pub const MAX_RETRIES: u8 = 3;
+pub const RETRY_DELAY_MS: i32 = 2000;
