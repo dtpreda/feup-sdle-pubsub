@@ -23,6 +23,10 @@ struct Args {
 #[command(infer_subcommands = true)]
 pub enum Operation {
     Put {
+        /// The ID of the publisher.
+        #[arg(short, long, env = "PUBLISHER_ID")]
+        id: String,
+
         /// The topic to publish to.
         #[arg(short, long)]
         topic: String,
