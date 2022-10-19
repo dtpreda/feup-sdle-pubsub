@@ -100,7 +100,9 @@ impl Server {
                             Some(i) => {
                                 GetResponse::Ok(SequentialMessage {message: queue.get(i).unwrap().as_ref().clone(), sequence_number: sequence_number + 1})
                             }
-                            None => GetResponse::NoMessageAvailable,
+                            None => {
+                                println!("No message available {:?}", *client_sequence);
+                                GetResponse::NoMessageAvailable},
                         }
                     }
                     None => GetResponse::NoMessageAvailable,
