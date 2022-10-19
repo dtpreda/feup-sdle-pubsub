@@ -35,16 +35,7 @@ fn send_request(operation: &Operation, socket: &zmq::Socket, client_sequences: &
             topic: topic.to_string(),
             data: message.clone().into_bytes(),
         }),
-        Operation::Get { id, topic } => {
-            match client_sequences.get(&topic.to_string()) {
-                Some(map) if map.contains_key(&id.to_string()) => {
-                    Request::Get(id.to_string(), topic.to_string(), map.get(&id.to_string()).unwrap().clone())
-                },
-                _ => {
-                    Request::Get(id.to_string(), topic.to_string(), 0)
-                }
-            }
-        },
+        Operation::Get { id, topic } => Request::Get(id.to_string(), topic.to_string(), map.get(id).unwrap_or(0)),
         Operation::Subscribe { id, topic } => Request::Subscribe(id.to_string(), topic.to_string()),
         Operation::Unsubscribe { id, topic } => {
             Request::Unsubscribe(id.to_string(), topic.to_string())
