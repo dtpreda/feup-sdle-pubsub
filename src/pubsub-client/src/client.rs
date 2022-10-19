@@ -1,7 +1,6 @@
 use std::io::{self, Write};
 use std::collections::HashMap;
 use std::fs;
-use serde_json;
 
 use pubsub_common::{
     GetResponse, Message, PutResponse, Request, SubscribeResponse, UnsubscribeResponse, SubscriberId, SequenceNumber, Topic
