@@ -3,13 +3,14 @@ use std::rc::Rc;
 
 use pubsub_common::{
     GetResponse, Message, PutResponse, Request, SubscribeResponse, SubscriberId, Topic,
-    UnsubscribeResponse,
+    UnsubscribeResponse, SequentialMessage, SequenceNumber
 };
 
 pub struct Server {
     socket: zmq::Socket,
     queue: HashMap<SubscriberId, VecDeque<Rc<Message>>>,
     subscriptions: HashMap<Topic, HashSet<SubscriberId>>,
+    client_sequences: HashMap<Topic, HashMap<SubscriberId, SequenceNumber>>,
 }
 
 impl Server {
@@ -23,6 +24,7 @@ impl Server {
             socket,
             queue: HashMap::new(),
             subscriptions: HashMap::new(),
+            client_sequences: HashMap::new(),
         })
     }
 
@@ -35,7 +37,7 @@ impl Server {
                 serde_json::from_slice(&message).expect("request parsing failed");
             let response = match request {
                 Request::Put(m) => serde_json::to_vec(&self.put(m)),
-                Request::Get(s, t) => serde_json::to_vec(&self.get(s, t)),
+                Request::Get(s, t, sn) => serde_json::to_vec(&self.get(s, t, sn)),
                 Request::Subscribe(s, t) => serde_json::to_vec(&self.subscribe(s, t)),
                 Request::Unsubscribe(s, t) => serde_json::to_vec(&self.unsubscribe(s, t)),
             }
@@ -59,25 +61,52 @@ impl Server {
         PutResponse {}
     }
 
-    fn get(&mut self, subscriber: SubscriberId, topic: Topic) -> GetResponse {
+    fn get(&mut self, subscriber: SubscriberId, topic: Topic, sequence_number: SequenceNumber) -> GetResponse {
         match self.subscriptions.get(&topic) {
             Some(set) if set.contains(&subscriber) => {}
             _ => return GetResponse::NotSubscribed,
         }
 
-        match self.queue.get_mut(&subscriber) {
-            Some(queue) => {
-                let index = queue
-                    .iter()
-                    .enumerate()
-                    .find(|(_, msg)| msg.topic == topic)
-                    .map(|(i, _)| i);
-                match index {
-                    Some(i) => GetResponse::Ok((*queue.remove(i).unwrap()).clone()),
+        match self.client_sequences.get(&topic) {
+            Some(map) if map.contains_key(&subscriber) => {
+                let client_sequence = map.get(&subscriber).unwrap();
+                match self.queue.get_mut(&subscriber) {
+                    Some(queue) => {
+                        if sequence_number == *client_sequence && *client_sequence != 0{
+                            let index = queue
+                            .iter()
+                            .enumerate()
+                            .find(|(_, msg)| msg.topic == topic)
+                            .map(|(i, _)| i);
+                            match index {
+                                Some(i) => {
+                                    queue.remove(i);
+                                }
+                                None => { return GetResponse::NoMessageAvailable; }
+                            };
+                        } else if *client_sequence != 0 && sequence_number != *client_sequence - 1{
+                            return GetResponse::InvalidSequenceNumber(*client_sequence);
+                        }
+
+                        let client_sequence = self.client_sequences.get_mut(&topic).unwrap();
+                        client_sequence.insert(subscriber.clone(), sequence_number + 1);
+                        
+                        let index = queue
+                            .iter()
+                            .enumerate()
+                            .find(|(_, msg)| msg.topic == topic)
+                            .map(|(i, _)| i);
+                        match index {
+                            Some(i) => {
+                                GetResponse::Ok(SequentialMessage {message: queue.get(i).unwrap().as_ref().clone(), sequence_number: sequence_number + 1})
+                            }
+                            None => GetResponse::NoMessageAvailable,
+                        }
+                    }
                     None => GetResponse::NoMessageAvailable,
                 }
             }
-            None => GetResponse::NoMessageAvailable,
+            _ => return GetResponse::NotSubscribed,
         }
     }
 
@@ -85,9 +114,10 @@ impl Server {
         if !self.queue.contains_key(&subscriber) {
             self.queue.insert(subscriber.to_owned(), VecDeque::new());
         }
-
-        let set = self.subscriptions.entry(topic).or_insert_with(HashSet::new);
-        if set.insert(subscriber) {
+        
+        let set = self.subscriptions.entry(topic.to_owned()).or_insert_with(HashSet::new);
+        let sequences_set = self.client_sequences.entry(topic).or_insert_with(HashMap::new);
+        if set.insert(subscriber.to_owned()) && sequences_set.insert(subscriber, 0).is_none() {
             SubscribeResponse::Ok
         } else {
             SubscribeResponse::AlreadySubscribed

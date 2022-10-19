@@ -23,7 +23,7 @@ fn send_request(operation: &Operation, socket: &zmq::Socket) -> Result<(), zmq::
             topic: topic.to_string(),
             data: message.clone().into_bytes(),
         }),
-        Operation::Get { id, topic } => Request::Get(id.to_string(), topic.to_string()),
+        Operation::Get { id, topic } => Request::Get(id.to_string(), topic.to_string(), 0),
         Operation::Subscribe { id, topic } => Request::Subscribe(id.to_string(), topic.to_string()),
         Operation::Unsubscribe { id, topic } => {
             Request::Unsubscribe(id.to_string(), topic.to_string())
@@ -67,11 +67,12 @@ fn process_put(_: PutResponse) {
 
 fn process_get(reply: GetResponse) {
     match reply {
-        GetResponse::Ok(message) => io::stdout()
-            .write_all(&message.data)
+        GetResponse::Ok(seq_message) => io::stdout()
+            .write_all(&seq_message.message.data)
             .expect("IO error while writing to stdout"),
         GetResponse::NotSubscribed => eprintln!("You are not subscribed for that topic"),
         GetResponse::NoMessageAvailable => eprintln!("No message is available from that topic"),
+        GetResponse::InvalidSequenceNumber(sn) => eprintln!("Invalid sequence number. Should be: {}", sn)
     }
 }
 
