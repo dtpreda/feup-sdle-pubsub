@@ -1,6 +1,7 @@
 mod server;
 
 use clap::Parser;
+use simple_logger::SimpleLogger;
 
 use crate::server::Server;
 
@@ -11,6 +12,7 @@ struct Args {
 }
 
 fn main() -> Result<(), zmq::Error> {
+    SimpleLogger::new().init().unwrap();
     let args = Args::parse();
     let mut server = Server::new(args.port)?;
     server.run();

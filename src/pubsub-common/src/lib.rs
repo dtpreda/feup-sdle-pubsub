@@ -17,8 +17,11 @@ pub enum Request {
     Unsubscribe(SubscriberId, Topic),
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub struct PutResponse;
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum PutResponse {
+    Ok,
+    NoSubscribers,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GetResponse {

@@ -61,15 +61,21 @@ fn receive_and_handle_response(
     Ok(())
 }
 
-fn process_put(_: PutResponse) {
-    println!("Message published successfully");
+fn process_put(reply: PutResponse) {
+    match reply {
+        PutResponse::Ok => println!("Message published successfully"),
+        PutResponse::NoSubscribers => println!("Message not published: no subscribers for topic"),
+    }
 }
 
 fn process_get(reply: GetResponse) {
     match reply {
-        GetResponse::Ok(message) => io::stdout()
-            .write_all(&message.data)
-            .expect("IO error while writing to stdout"),
+        GetResponse::Ok(message) => {
+            io::stdout()
+                .write_all(&message.data)
+                .expect("IO error while writing to stdout");
+            println!("")
+        }
         GetResponse::NotSubscribed => eprintln!("You are not subscribed for that topic"),
         GetResponse::NoMessageAvailable => eprintln!("No message is available from that topic"),
     }
