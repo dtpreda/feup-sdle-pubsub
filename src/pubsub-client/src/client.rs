@@ -81,16 +81,10 @@ fn process_put(_: PutResponse) {
 fn process_get(reply: GetResponse, mut client_sequences: HashMap<Topic, HashMap<SubscriberId, SequenceNumber>>, id: &SubscriberId, topic: &Topic) -> () {
     match reply {
         GetResponse::Ok(seq_message) => {
-            match client_sequences.get(&topic.to_string()) {
-                Some(map) if map.contains_key(&id.to_string()) => {
-                    client_sequences.get_mut(&topic.to_string()).unwrap().insert(id.to_string(), seq_message.sequence_number);
-                },
-                _ => {
-                    let mut map = HashMap::new();
-                    map.insert(id.to_string(), seq_message.sequence_number);
-                    client_sequences.insert(topic.to_string(), map);
-                }
-            }
+            client_sequences
+                .entry(topic.to_owned())
+                .or_insert_with(HashMap::new)
+                .insert(id.to_owned(), seq_message.sequence_number);
             let mut file = match fs::File::create("client_sequences.json.new") {
                 Ok(file) => file,
                 Err(_) => panic!("Internal client error"),
