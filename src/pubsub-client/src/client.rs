@@ -15,15 +15,9 @@ pub fn perform_operation(url: String, operation: Operation) -> Result<(), zmq::E
         .connect(&url)
         .expect("Service is unavailable: could not connect");
 
-    let mut client_sequences_file = match fs::File::open("./client_sequences.json") {
-        Ok(file) => file,
-        Err(_) => fs::File::create("./client_sequences.json").unwrap(),
-    };
-    let client_sequences : HashMap<Topic, HashMap<SubscriberId, SequenceNumber>> = match serde_json::from_reader(&mut client_sequences_file) {
-        Ok(client_sequences) => client_sequences,
-        Err(_) => {
-            HashMap::new()
-        },
+    let client_sequences: HashMap<Topic, HashMap<SubscriberId, SequenceNumber>> = match fs::File::open("client_sequences.json") {
+        Ok(mut file) => serde_json::from_reader(&mut file).unwrap(),
+        Err(_) => HashMap::new(),
     };
     send_request(&operation, &socket, &client_sequences)?;
     receive_and_handle_response(&operation, &socket, client_sequences)
@@ -35,7 +29,7 @@ fn send_request(operation: &Operation, socket: &zmq::Socket, client_sequences: &
             topic: topic.to_string(),
             data: message.clone().into_bytes(),
         }),
-        Operation::Get { id, topic } => Request::Get(id.to_string(), topic.to_string(), map.get(id).unwrap_or(0)),
+        Operation::Get { id, topic } => {Request::Get(id.to_string(), topic.to_string(), *client_sequences.get(topic).unwrap_or(&HashMap::new()).get(id).unwrap_or(&0))},
         Operation::Subscribe { id, topic } => Request::Subscribe(id.to_string(), topic.to_string()),
         Operation::Unsubscribe { id, topic } => {
             Request::Unsubscribe(id.to_string(), topic.to_string())
@@ -85,22 +79,12 @@ fn process_get(reply: GetResponse, mut client_sequences: HashMap<Topic, HashMap<
                 .entry(topic.to_owned())
                 .or_insert_with(HashMap::new)
                 .insert(id.to_owned(), seq_message.sequence_number);
-            let mut file = match fs::File::create("client_sequences.json.new") {
-                Ok(file) => file,
-                Err(_) => panic!("Internal client error"),
-            };
-            match serde_json::to_writer(&mut file, &client_sequences) {
-                Ok(_) => (),
-                Err(_) => panic!("Internal client error"),
-            };
-            match file.sync_all() {
-                Ok(_) => (),
-                Err(_) => panic!("Internal client error"),
-            };
-            match fs::rename("client_sequences.json.new", "client_sequences.json") {
-                Ok(_) => (),
-                Err(_) => panic!("Internal client error"),
-            };
+            
+            let mut file = fs::File::create("client_sequences.json.new").expect("Internal client error");
+            serde_json::to_writer(&mut file, &client_sequences).expect("Internal client error");
+            file.sync_all().expect("Internal client error");
+            fs::rename("client_sequences.json.new", "client_sequences.json").expect("Internal client error");
+            
             io::stdout()
             .write_all(&seq_message.message.data)
             .expect("IO error while writing to stdout");
