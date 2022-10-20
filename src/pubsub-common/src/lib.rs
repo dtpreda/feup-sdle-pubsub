@@ -22,8 +22,8 @@ pub enum Request {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PutResponse {
     Ok,
-    RepeatedMessage,
-    InvalidSequenceNumber,
+    RepeatedMessage(SequenceNumber),
+    InvalidSequenceNumber(SequenceNumber),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

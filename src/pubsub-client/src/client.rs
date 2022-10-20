@@ -1,8 +1,12 @@
-use std::io::{self, Write};
+use std::{
+    collections::HashMap,
+    fs,
+    io::{self, Write},
+};
 
 use pubsub_common::{
-    GetResponse, Message, PutResponse, Request, SubscribeResponse, UnsubscribeResponse,
-    MAX_RETRIES, RETRY_DELAY_MS,
+    GetResponse, Message, PutResponse, Request, SequenceNumber, SubscribeResponse, Topic,
+    UnsubscribeResponse, MAX_RETRIES, RETRY_DELAY_MS,
 };
 
 use super::Operation;
@@ -16,16 +20,31 @@ pub fn perform_operation(url: String, operation: Operation) -> Result<(), zmq::E
         .connect(&url)
         .expect("Service is unavailable: could not connect");
 
-    send_request(&operation, &socket)?;
-    receive_and_handle_response(&operation, &socket)
+    // TODO: address the clash of two publishers with different ids on the same machine
+    let mut client_put_sequences: HashMap<Topic, SequenceNumber> =
+        match fs::File::open("client_put_sequences.json") {
+            Ok(file) => serde_json::from_reader(file).unwrap(),
+            Err(_) => HashMap::new(),
+        };
+
+    send_request(&operation, &socket, &client_put_sequences)?;
+    receive_and_handle_response(&operation, &socket, &mut client_put_sequences)
 }
 
-fn send_request(operation: &Operation, socket: &zmq::Socket) -> Result<(), zmq::Error> {
+fn send_request(
+    operation: &Operation,
+    socket: &zmq::Socket,
+    client_put_sequences: &HashMap<Topic, SequenceNumber>,
+) -> Result<(), zmq::Error> {
     let request: Request = match operation {
-        Operation::Put { topic, message } => Request::Put(Message {
-            topic: topic.to_string(),
-            data: message.clone().into_bytes(),
-        }),
+        Operation::Put { id, topic, message } => Request::Put(
+            Message {
+                topic: topic.to_string(),
+                data: message.clone().into_bytes(),
+            },
+            id.to_string(),
+            *client_put_sequences.get(topic).unwrap_or(&0),
+        ),
         Operation::Get { id, topic } => Request::Get(id.to_string(), topic.to_string()),
         Operation::Subscribe { id, topic } => Request::Subscribe(id.to_string(), topic.to_string()),
         Operation::Unsubscribe { id, topic } => {
@@ -40,6 +59,7 @@ fn send_request(operation: &Operation, socket: &zmq::Socket) -> Result<(), zmq::
 fn receive_and_handle_response(
     operation: &Operation,
     socket: &zmq::Socket,
+    client_put_sequences: &mut HashMap<Topic, SequenceNumber>,
 ) -> Result<(), zmq::Error> {
     let mut message = zmq::Message::new();
     for i in 0.. {
@@ -53,9 +73,11 @@ fn receive_and_handle_response(
     }
 
     match operation {
-        Operation::Put { .. } => {
-            process_put(serde_json::from_slice::<PutResponse>(&message).unwrap())
-        }
+        Operation::Put { topic, .. } => process_put(
+            serde_json::from_slice::<PutResponse>(&message).unwrap(),
+            topic,
+            client_put_sequences,
+        ),
         Operation::Get { .. } => {
             process_get(serde_json::from_slice::<GetResponse>(&message).unwrap())
         }
@@ -70,8 +92,33 @@ fn receive_and_handle_response(
     Ok(())
 }
 
-fn process_put(_: PutResponse) {
-    println!("Message published successfully");
+fn process_put(
+    reply: PutResponse,
+    topic: &Topic,
+    client_put_sequences: &mut HashMap<Topic, SequenceNumber>,
+) {
+    let client_sequence_number = client_put_sequences.get(topic).unwrap_or(&0);
+    match reply {
+        PutResponse::Ok => {
+            client_put_sequences.insert(topic.to_string(), client_sequence_number + 1);
+            println!("Message published successfully")
+        }
+        PutResponse::RepeatedMessage(sequence_number) => {
+            client_put_sequences.insert(topic.to_string(), sequence_number);
+            println!("Repeated message")
+        }
+        PutResponse::InvalidSequenceNumber(sequence_number) => {
+            client_put_sequences.insert(topic.to_string(), sequence_number);
+            println!("Invalid sequence number")
+        }
+    }
+
+    let mut file =
+        fs::File::create("client_put_sequences.json.new").expect("Internal client error");
+    serde_json::to_writer(&mut file, &client_put_sequences).expect("Internal client error");
+    file.sync_all().expect("Internal client error");
+    fs::rename("client_put_sequences.json.new", "client_put_sequences.json")
+        .expect("Internal client error");
 }
 
 fn process_get(reply: GetResponse) {

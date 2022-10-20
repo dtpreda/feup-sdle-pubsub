@@ -78,14 +78,14 @@ impl Server {
                 seq = client_sequence_number,
                 "client sent an already received message"
             );
-            return PutResponse::RepeatedMessage;
+            return PutResponse::RepeatedMessage(*server_side_sequence_number);
         } else if *server_side_sequence_number < client_sequence_number {
             debug!(
                 expected = server_side_sequence_number,
                 received = client_sequence_number,
                 "received message is a few messages ahead of what was expected"
             );
-            return PutResponse::InvalidSequenceNumber;
+            return PutResponse::InvalidSequenceNumber(*server_side_sequence_number);
         }
 
         *server_side_sequence_number += 1;
