@@ -2,6 +2,7 @@ use std::io::{self, Write};
 
 use pubsub_common::{
     GetResponse, Message, PutResponse, Request, SubscribeResponse, UnsubscribeResponse,
+    MAX_RETRIES, RETRY_DELAY_MS,
 };
 
 use super::Operation;
@@ -9,6 +10,8 @@ use super::Operation;
 pub fn perform_operation(url: String, operation: Operation) -> Result<(), zmq::Error> {
     let context = zmq::Context::new();
     let socket = context.socket(zmq::SocketType::REQ)?;
+    socket.set_linger(0)?;
+    socket.set_rcvtimeo(RETRY_DELAY_MS)?;
     socket
         .connect(&url)
         .expect("Service is unavailable: could not connect");
@@ -39,9 +42,15 @@ fn receive_and_handle_response(
     socket: &zmq::Socket,
 ) -> Result<(), zmq::Error> {
     let mut message = zmq::Message::new();
-    socket
-        .recv(&mut message, 0)
-        .expect("No response from server");
+    for i in 0.. {
+        if socket.recv(&mut message, 0).is_ok() {
+            break;
+        }
+        if i == MAX_RETRIES {
+            eprintln!("Service is unavailable: no response");
+            return Err(zmq::Error::EAGAIN);
+        }
+    }
 
     match operation {
         Operation::Put { .. } => {
