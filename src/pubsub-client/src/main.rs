@@ -5,6 +5,14 @@ use client::perform_operation;
 
 #[derive(Parser, Debug)]
 struct Args {
+    /// The desired operation.
+    #[command(subcommand)]
+    operation: Operation,
+
+    /// The ID of the client.
+    #[arg(short, long, env = "CLIENT_ID")]
+    id: String,
+
     /// The URL of the server.
     #[arg(
         short,
@@ -13,59 +21,34 @@ struct Args {
         default_value = "tcp://localhost:5555"
     )]
     url: String,
-
-    /// The desired operation.
-    #[command(subcommand)]
-    operation: Operation,
 }
 
 #[derive(Subcommand, Debug)]
 #[command(infer_subcommands = true)]
 pub enum Operation {
     Put {
-        /// The ID of the publisher.
-        #[arg(short, long, env = "PUBLISHER_ID")]
-        id: String,
-
         /// The topic to publish to.
-        #[arg(short, long)]
         topic: String,
 
         /// The message to publish (read from standard input).
-        #[arg(short, long)]
         message: String,
     },
     Get {
-        /// The ID of the subscriber.
-        #[arg(short, long, env = "SUBSCRIBER_ID")]
-        id: String,
-
         /// Topic to fetch.
-        #[arg(short, long)]
         topic: String,
     },
     Subscribe {
-        /// The ID of the subscriber.
-        #[arg(short, long, env = "SUBSCRIBER_ID")]
-        id: String,
-
         /// Topic to subscribe to.
-        #[arg(short, long)]
         topic: String,
     },
     Unsubscribe {
-        /// The ID of the subscriber.
-        #[arg(short, long, env = "SUBSCRIBER_ID")]
-        id: String,
-
         /// Topic to unsubscribe from.
-        #[arg(short, long)]
         topic: String,
     },
 }
 
 fn main() -> Result<(), zmq::Error> {
     let args = Args::parse();
-    perform_operation(args.url, args.operation)?;
+    perform_operation(args.id, args.url, args.operation)?;
     Ok(())
 }

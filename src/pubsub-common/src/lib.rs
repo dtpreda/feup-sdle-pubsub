@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub type Topic = String;
-pub type SubscriberId = String;
-pub type PublisherId = String;
+pub type ClientId = String;
 pub type SequenceNumber = u64;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -13,10 +12,10 @@ pub struct Message {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
-    Put(Message, PublisherId, SequenceNumber),
-    Get(SubscriberId, Topic),
-    Subscribe(SubscriberId, Topic),
-    Unsubscribe(SubscriberId, Topic),
+    Put(Message, ClientId, SequenceNumber),
+    Get(ClientId, Topic),
+    Subscribe(ClientId, Topic),
+    Unsubscribe(ClientId, Topic),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

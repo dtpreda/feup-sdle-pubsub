@@ -5,44 +5,51 @@ use std::{
 };
 
 use pubsub_common::{
-    GetResponse, Message, PutResponse, Request, SequenceNumber, SubscribeResponse, Topic,
+    ClientId, GetResponse, Message, PutResponse, Request, SequenceNumber, SubscribeResponse, Topic,
     UnsubscribeResponse, MAX_RETRIES, RETRY_DELAY_MS,
 };
 
 use super::Operation;
 
-pub fn perform_operation(url: String, operation: Operation) -> Result<(), zmq::Error> {
+pub fn perform_operation(
+    client_id: ClientId,
+    service_url: String,
+    operation: Operation,
+) -> Result<(), zmq::Error> {
     let context = zmq::Context::new();
     let socket = context.socket(zmq::SocketType::REQ)?;
     socket.set_linger(0)?;
     socket.set_rcvtimeo(RETRY_DELAY_MS)?;
     socket
-        .connect(&url)
+        .connect(&service_url)
         .expect("Service is unavailable: could not connect");
 
-    let mut client_put_sequences = read_client_put_sequences_from_disk();
-    send_request(&operation, &socket, &client_put_sequences)?;
-    receive_and_handle_response(&operation, &socket, &mut client_put_sequences)
+    let mut client_put_sequences = read_client_put_sequences_from_disk(&client_id);
+    send_request(&client_id, &operation, &socket, &client_put_sequences)?;
+    receive_and_handle_response(&operation, &socket, &mut client_put_sequences, &client_id)
 }
 
 fn send_request(
+    client_id: &ClientId,
     operation: &Operation,
     socket: &zmq::Socket,
     client_put_sequences: &HashMap<Topic, SequenceNumber>,
 ) -> Result<(), zmq::Error> {
     let request: Request = match operation {
-        Operation::Put { id, topic, message } => Request::Put(
+        Operation::Put { topic, message } => Request::Put(
             Message {
                 topic: topic.to_string(),
                 data: message.clone().into_bytes(),
             },
-            id.to_string(),
+            client_id.to_string(),
             *client_put_sequences.get(topic).unwrap_or(&0),
         ),
-        Operation::Get { id, topic } => Request::Get(id.to_string(), topic.to_string()),
-        Operation::Subscribe { id, topic } => Request::Subscribe(id.to_string(), topic.to_string()),
-        Operation::Unsubscribe { id, topic } => {
-            Request::Unsubscribe(id.to_string(), topic.to_string())
+        Operation::Get { topic } => Request::Get(client_id.to_string(), topic.to_string()),
+        Operation::Subscribe { topic } => {
+            Request::Subscribe(client_id.to_string(), topic.to_string())
+        }
+        Operation::Unsubscribe { topic } => {
+            Request::Unsubscribe(client_id.to_string(), topic.to_string())
         }
     };
 
@@ -54,6 +61,7 @@ fn receive_and_handle_response(
     operation: &Operation,
     socket: &zmq::Socket,
     client_put_sequences: &mut HashMap<Topic, SequenceNumber>,
+    client_id: &ClientId,
 ) -> Result<(), zmq::Error> {
     let mut message = zmq::Message::new();
     for i in 0.. {
@@ -71,6 +79,7 @@ fn receive_and_handle_response(
             serde_json::from_slice::<PutResponse>(&message).unwrap(),
             topic,
             client_put_sequences,
+            client_id,
         ),
         Operation::Get { .. } => {
             process_get(serde_json::from_slice::<GetResponse>(&message).unwrap())
@@ -90,6 +99,7 @@ fn process_put(
     reply: PutResponse,
     topic: &Topic,
     client_put_sequences: &mut HashMap<Topic, SequenceNumber>,
+    client_id: &ClientId,
 ) {
     let client_sequence_number = client_put_sequences.get(topic).unwrap_or(&0);
     match reply {
@@ -99,20 +109,15 @@ fn process_put(
         }
         PutResponse::RepeatedMessage(sequence_number) => {
             client_put_sequences.insert(topic.to_string(), sequence_number);
-            println!("Repeated message")
+            eprintln!("Repeated message")
         }
         PutResponse::InvalidSequenceNumber(sequence_number) => {
             client_put_sequences.insert(topic.to_string(), sequence_number);
-            println!("Invalid sequence number")
+            eprintln!("Invalid sequence number")
         }
     }
 
-    let mut file =
-        fs::File::create("client_put_sequences.json.new").expect("Internal client error");
-    serde_json::to_writer(&mut file, &client_put_sequences).expect("Internal client error");
-    file.sync_all().expect("Internal client error");
-    fs::rename("client_put_sequences.json.new", "client_put_sequences.json")
-        .expect("Internal client error");
+    write_client_put_sequences_to_disk(&client_put_sequences, &client_id);
 }
 
 fn process_get(reply: GetResponse) {
@@ -143,18 +148,21 @@ fn process_unsubscribe(reply: UnsubscribeResponse) {
     }
 }
 
-fn write_client_put_sequences_to_disk(client_put_sequences: &HashMap<Topic, SequenceNumber>) {
-    let mut file =
-        fs::File::create("client_put_sequences.json.new").expect("Could not create file");
+fn write_client_put_sequences_to_disk(
+    client_put_sequences: &HashMap<Topic, SequenceNumber>,
+    client_id: &ClientId,
+) {
+    let temp_file_name = format!("client_put_sequences_{}.json.new", client_id);
+    let file_name = format!("client_put_sequences_{}.json", client_id);
+
+    let mut file = fs::File::create(&temp_file_name).expect("Could not create file");
     serde_json::to_writer(&mut file, &client_put_sequences).expect("Could not write to file");
     file.sync_all().expect("Could not sync file");
-    fs::rename("client_put_sequences.json.new", "client_put_sequences.json")
-        .expect("Could not rename temporary file");
+    fs::rename(temp_file_name, file_name).expect("Could not rename file");
 }
 
-fn read_client_put_sequences_from_disk() -> HashMap<Topic, SequenceNumber> {
-    // TODO: address the clash of two publishers with different ids on the same machine
-    return match fs::File::open("client_put_sequences.json") {
+fn read_client_put_sequences_from_disk(client_id: &ClientId) -> HashMap<Topic, SequenceNumber> {
+    return match fs::File::open(format!("client_put_sequences_{}.json", client_id)) {
         Ok(file) => serde_json::from_reader(file).unwrap(),
         Err(_) => HashMap::new(),
     };

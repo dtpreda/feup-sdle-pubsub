@@ -4,15 +4,15 @@ use std::rc::Rc;
 use tracing::{debug, info, span, trace, Level};
 
 use pubsub_common::{
-    GetResponse, Message, PublisherId, PutResponse, Request, SequenceNumber, SubscribeResponse,
-    SubscriberId, Topic, UnsubscribeResponse,
+    ClientId, GetResponse, Message, PutResponse, Request, SequenceNumber, SubscribeResponse, Topic,
+    UnsubscribeResponse,
 };
 
 pub struct Server {
     socket: zmq::Socket,
-    queue: HashMap<SubscriberId, VecDeque<Rc<Message>>>,
-    subscriptions: HashMap<Topic, HashSet<SubscriberId>>,
-    client_put_sequences: HashMap<Topic, HashMap<PublisherId, SequenceNumber>>,
+    queue: HashMap<ClientId, VecDeque<Rc<Message>>>,
+    subscriptions: HashMap<Topic, HashSet<ClientId>>,
+    client_put_sequences: HashMap<Topic, HashMap<ClientId, SequenceNumber>>,
 }
 
 impl Server {
@@ -59,7 +59,7 @@ impl Server {
     fn put(
         &mut self,
         message: Message,
-        publisher_id: PublisherId,
+        publisher_id: ClientId,
         client_sequence_number: SequenceNumber,
     ) -> PutResponse {
         let span = span!(Level::DEBUG, "put");
@@ -112,7 +112,7 @@ impl Server {
         PutResponse::Ok
     }
 
-    fn get(&mut self, subscriber: SubscriberId, topic: Topic) -> GetResponse {
+    fn get(&mut self, subscriber: ClientId, topic: Topic) -> GetResponse {
         let span = span!(Level::DEBUG, "get");
         let _enter = span.enter();
 
@@ -155,7 +155,7 @@ impl Server {
         }
     }
 
-    fn subscribe(&mut self, subscriber: SubscriberId, topic: Topic) -> SubscribeResponse {
+    fn subscribe(&mut self, subscriber: ClientId, topic: Topic) -> SubscribeResponse {
         let span = span!(Level::DEBUG, "subscribe");
         let _enter = span.enter();
         debug!(subscriber, topic, "subscribing to topic");
@@ -173,7 +173,7 @@ impl Server {
         }
     }
 
-    fn unsubscribe(&mut self, subscriber: SubscriberId, topic: Topic) -> UnsubscribeResponse {
+    fn unsubscribe(&mut self, subscriber: ClientId, topic: Topic) -> UnsubscribeResponse {
         let span = span!(Level::DEBUG, "unsubscribe");
         let _enter = span.enter();
 
