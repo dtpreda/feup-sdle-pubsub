@@ -20,13 +20,7 @@ pub fn perform_operation(url: String, operation: Operation) -> Result<(), zmq::E
         .connect(&url)
         .expect("Service is unavailable: could not connect");
 
-    // TODO: address the clash of two publishers with different ids on the same machine
-    let mut client_put_sequences: HashMap<Topic, SequenceNumber> =
-        match fs::File::open("client_put_sequences.json") {
-            Ok(file) => serde_json::from_reader(file).unwrap(),
-            Err(_) => HashMap::new(),
-        };
-
+    let mut client_put_sequences = read_client_put_sequences_from_disk();
     send_request(&operation, &socket, &client_put_sequences)?;
     receive_and_handle_response(&operation, &socket, &mut client_put_sequences)
 }
@@ -147,4 +141,21 @@ fn process_unsubscribe(reply: UnsubscribeResponse) {
             eprintln!("You are not subscribed for that topic. No action was taken.")
         }
     }
+}
+
+fn write_client_put_sequences_to_disk(client_put_sequences: &HashMap<Topic, SequenceNumber>) {
+    let mut file =
+        fs::File::create("client_put_sequences.json.new").expect("Could not create file");
+    serde_json::to_writer(&mut file, &client_put_sequences).expect("Could not write to file");
+    file.sync_all().expect("Could not sync file");
+    fs::rename("client_put_sequences.json.new", "client_put_sequences.json")
+        .expect("Could not rename temporary file");
+}
+
+fn read_client_put_sequences_from_disk() -> HashMap<Topic, SequenceNumber> {
+    // TODO: address the clash of two publishers with different ids on the same machine
+    return match fs::File::open("client_put_sequences.json") {
+        Ok(file) => serde_json::from_reader(file).unwrap(),
+        Err(_) => HashMap::new(),
+    };
 }
