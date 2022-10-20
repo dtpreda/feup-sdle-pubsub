@@ -32,7 +32,7 @@ pub enum GetResponse {
     Ok(SequentialMessage),
     NotSubscribed,
     NoMessageAvailable,
-    InvalidSequenceNumber(SequenceNumber)
+    InvalidSequenceNumber(SequenceNumber),
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
