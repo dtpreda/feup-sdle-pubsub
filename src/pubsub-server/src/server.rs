@@ -61,7 +61,7 @@ impl Server {
         PutResponse {}
     }
 
-    fn get_last_message_index(queue: &VecDeque<Rc<Message>>, topic: Topic) -> Option<usize>{
+    fn get_last_message_index(queue: &VecDeque<Rc<Message>>, topic: Topic) -> Option<usize> {
         queue
             .iter()
             .enumerate()
@@ -99,9 +99,12 @@ impl Server {
                                         return GetResponse::NoMessageAvailable;
                                     }
                                 };
-                            } else if requested_get_sequence_number == *server_side_get_sequence_number {
+                            } else if requested_get_sequence_number
+                                == *server_side_get_sequence_number
+                            {
                                 return GetResponse::NoMessageAvailable;
-                            } else if requested_get_sequence_number != *server_side_get_sequence_number - 1
+                            } else if requested_get_sequence_number
+                                != *server_side_get_sequence_number - 1
                             {
                                 return GetResponse::InvalidSequenceNumber(
                                     *server_side_get_sequence_number,
