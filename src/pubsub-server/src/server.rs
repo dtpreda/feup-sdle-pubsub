@@ -10,7 +10,7 @@ pub struct Server {
     socket: zmq::Socket,
     queue: HashMap<SubscriberId, VecDeque<Rc<Message>>>,
     subscriptions: HashMap<Topic, HashSet<SubscriberId>>,
-    client_sequences: HashMap<Topic, HashMap<SubscriberId, SequenceNumber>>,
+    client_get_sequences: HashMap<Topic, HashMap<SubscriberId, SequenceNumber>>,
 }
 
 impl Server {
@@ -24,7 +24,7 @@ impl Server {
             socket,
             queue: HashMap::new(),
             subscriptions: HashMap::new(),
-            client_sequences: HashMap::new(),
+            client_get_sequences: HashMap::new(),
         })
     }
 
@@ -61,32 +61,36 @@ impl Server {
         PutResponse {}
     }
 
+    fn get_last_message_index(queue: &VecDeque<Rc<Message>>, topic: Topic) -> Option<usize>{
+        queue
+            .iter()
+            .enumerate()
+            .find(|(_, msg)| msg.topic == topic)
+            .map(|(i, _)| i)
+    }
+
     fn get(
         &mut self,
         subscriber: SubscriberId,
         topic: Topic,
-        requested_sequence_number: SequenceNumber,
+        requested_get_sequence_number: SequenceNumber,
     ) -> GetResponse {
         match self.subscriptions.get(&topic) {
             Some(set) if set.contains(&subscriber) => {}
             _ => return GetResponse::NotSubscribed,
         }
 
-        match self.client_sequences.get(&topic) {
+        match self.client_get_sequences.get(&topic) {
             Some(map) if map.contains_key(&subscriber) => {
-                let server_side_sequence_number = map.get(&subscriber).unwrap();
+                let server_side_get_sequence_number = map.get(&subscriber).unwrap();
                 match self.queue.get_mut(&subscriber) {
                     Some(queue) => {
-                        let is_first_message = *server_side_sequence_number == 0;
+                        let is_first_message = *server_side_get_sequence_number == 0;
                         if !is_first_message {
-                            if requested_sequence_number == *server_side_sequence_number
+                            if requested_get_sequence_number == *server_side_get_sequence_number
                                 && queue.len() > 1
                             {
-                                let index = queue
-                                    .iter()
-                                    .enumerate()
-                                    .find(|(_, msg)| msg.topic == topic)
-                                    .map(|(i, _)| i);
+                                let index = Server::get_last_message_index(queue, topic.clone());
                                 match index {
                                     Some(i) => {
                                         queue.remove(i);
@@ -95,30 +99,26 @@ impl Server {
                                         return GetResponse::NoMessageAvailable;
                                     }
                                 };
-                            } else if requested_sequence_number == *server_side_sequence_number {
+                            } else if requested_get_sequence_number == *server_side_get_sequence_number {
                                 return GetResponse::NoMessageAvailable;
-                            } else if requested_sequence_number != *server_side_sequence_number - 1
+                            } else if requested_get_sequence_number != *server_side_get_sequence_number - 1
                             {
                                 return GetResponse::InvalidSequenceNumber(
-                                    *server_side_sequence_number,
+                                    *server_side_get_sequence_number,
                                 );
                             }
                         }
 
-                        let index = queue
-                            .iter()
-                            .enumerate()
-                            .find(|(_, msg)| msg.topic == topic)
-                            .map(|(i, _)| i);
+                        let index = Server::get_last_message_index(queue, topic.clone());
                         match index {
                             Some(i) => {
-                                let server_side_sequence_number =
-                                    self.client_sequences.get_mut(&topic).unwrap();
-                                server_side_sequence_number
-                                    .insert(subscriber.clone(), requested_sequence_number + 1);
+                                let server_side_get_sequence_number =
+                                    self.client_get_sequences.get_mut(&topic).unwrap();
+                                server_side_get_sequence_number
+                                    .insert(subscriber.clone(), requested_get_sequence_number + 1);
                                 GetResponse::Ok(SequentialMessage {
                                     message: queue.get(i).unwrap().as_ref().clone(),
-                                    sequence_number: requested_sequence_number + 1,
+                                    sequence_number: requested_get_sequence_number + 1,
                                 })
                             }
                             None => GetResponse::NoMessageAvailable,
@@ -141,7 +141,7 @@ impl Server {
             .entry(topic.to_owned())
             .or_insert_with(HashSet::new);
         let sequences_set = self
-            .client_sequences
+            .client_get_sequences
             .entry(topic)
             .or_insert_with(HashMap::new);
         if set.insert(subscriber.to_owned()) && sequences_set.insert(subscriber, 0).is_none() {
