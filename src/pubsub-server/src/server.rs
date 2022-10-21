@@ -60,11 +60,6 @@ impl Server {
     }
 
     fn get(&mut self, subscriber: SubscriberId, topic: Topic) -> GetResponse {
-        match self.subscriptions.get(&topic) {
-            Some(set) if set.contains(&subscriber) => {}
-            _ => return GetResponse::NotSubscribed,
-        }
-
         match self.queue.get_mut(&subscriber) {
             Some(queue) => {
                 let index = queue

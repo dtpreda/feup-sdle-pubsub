@@ -79,7 +79,6 @@ fn process_get(reply: GetResponse) {
         GetResponse::Ok(message) => io::stdout()
             .write_all(&message.data)
             .expect("IO error while writing to stdout"),
-        GetResponse::NotSubscribed => eprintln!("You are not subscribed for that topic"),
         GetResponse::NoMessageAvailable => eprintln!("No message is available from that topic"),
     }
 }
