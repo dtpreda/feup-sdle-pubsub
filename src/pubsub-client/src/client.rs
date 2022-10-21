@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     fs,
     io::{self, Write},
+    path::PathBuf,
 };
 
 use pubsub_common::{
@@ -152,8 +153,12 @@ fn write_client_put_sequences_to_disk(
     client_put_sequences: &HashMap<Topic, SequenceNumber>,
     client_id: &ClientId,
 ) {
-    let temp_file_name = format!("client_put_sequences_{}.json.new", client_id);
-    let file_name = format!("client_put_sequences_{}.json", client_id);
+    let mut dir = PathBuf::from("client_data");
+    dir.push(client_id);
+    fs::create_dir_all(&dir).expect("failed to create data directory");
+
+    let temp_file_name = dir.join("put_sequences.json.new");
+    let file_name = dir.join("put_sequences.json");
 
     let mut file = fs::File::create(&temp_file_name).expect("Could not create file");
     serde_json::to_writer(&mut file, &client_put_sequences).expect("Could not write to file");
@@ -162,8 +167,9 @@ fn write_client_put_sequences_to_disk(
 }
 
 fn read_client_put_sequences_from_disk(client_id: &ClientId) -> HashMap<Topic, SequenceNumber> {
-    return match fs::File::open(format!("client_put_sequences_{}.json", client_id)) {
+    return match fs::File::open(format!("client_data/{}/put_sequences.json", client_id)) {
         Ok(file) => serde_json::from_reader(file).unwrap(),
-        Err(_) => HashMap::new(),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => HashMap::new(),
+        Err(err) => panic!("failed to open sequence numbers file: {}", err),
     };
 }
