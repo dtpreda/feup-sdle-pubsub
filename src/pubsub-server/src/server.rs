@@ -11,7 +11,7 @@ use pubsub_common::{
 
 pub struct Server {
     socket: zmq::Socket,
-    queue: HashMap<ClientId, VecDeque<Rc<Message>>>,
+    queue: HashMap<(ClientId, Topic), VecDeque<Rc<Vec<u8>>>>,
     subscriptions: HashMap<Topic, HashSet<ClientId>>,
     client_put_sequences: HashMap<Topic, HashMap<ClientId, SequenceNumber>>,
 }
@@ -95,15 +95,15 @@ impl Server {
 
         match self.subscriptions.get(&message.topic) {
             Some(subscriber_set) => {
-                let msg_rc = Rc::new(message);
-                debug!(message = ?msg_rc, "storing message");
+                let data_rc = Rc::new(message.data);
+                debug!(message = ?data_rc, "storing message");
 
                 for subscriber in subscriber_set {
                     trace!(subscriber, "adding message to queue");
                     self.queue
-                        .get_mut(subscriber)
+                        .get_mut(&(subscriber.to_owned(), message.topic.to_owned()))
                         .expect("subscriber does not have a message queue")
-                        .push_back(msg_rc.clone());
+                        .push_back(data_rc.clone());
                 }
             }
             None => debug!(
@@ -119,30 +119,28 @@ impl Server {
         let span = span!(Level::DEBUG, "get");
         let _enter = span.enter();
 
-        match self.queue.get_mut(&subscriber) {
-            Some(queue) => {
-                let index = queue
-                    .iter()
-                    .enumerate()
-                    .find(|(_, msg)| msg.topic == topic)
-                    .map(|(i, _)| i);
-                match index {
-                    Some(i) => {
-                        let message = queue.remove(i).unwrap();
-                        debug!(
-                            subscriber,
-                            topic,
-                            ?message,
-                            "removed message from queue to send to the client"
-                        );
-                        GetResponse::Ok((*message).clone())
-                    }
-                    None => {
-                        debug!(subscriber, topic, "no messages available");
-                        GetResponse::NoMessageAvailable
-                    }
+        match self
+            .queue
+            .get_mut(&(subscriber.to_owned(), topic.to_owned()))
+        {
+            Some(queue) => match queue.pop_front() {
+                Some(data) => {
+                    debug!(
+                        subscriber,
+                        topic,
+                        ?data,
+                        "removed message from queue to send to the client"
+                    );
+                    GetResponse::Ok(Message {
+                        topic,
+                        data: data.to_vec(),
+                    })
                 }
-            }
+                None => {
+                    debug!(subscriber, topic, "no messages available");
+                    GetResponse::NoMessageAvailable
+                }
+            },
             None => {
                 debug!(subscriber, topic, "no messages available");
                 GetResponse::NoMessageAvailable
@@ -155,8 +153,12 @@ impl Server {
         let _enter = span.enter();
         debug!(subscriber, topic, "subscribing to topic");
 
-        if !self.queue.contains_key(&subscriber) {
-            self.queue.insert(subscriber.to_owned(), VecDeque::new());
+        if !self
+            .queue
+            .contains_key(&(subscriber.to_owned(), topic.to_owned()))
+        {
+            self.queue
+                .insert((subscriber.to_owned(), topic.to_owned()), VecDeque::new());
         }
 
         let set = self.subscriptions.entry(topic).or_insert_with(HashSet::new);
