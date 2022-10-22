@@ -1,8 +1,10 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::rc::Rc;
 
-use tracing::{debug, info, span, trace, Level};
+use std::rc::Rc;
+use std::{fs, io};
+
+use tracing::{debug, info, span, trace, warn, Level};
 
 use pubsub_common::{
     ClientId, GetResponse, Message, PutResponse, Request, SequenceNumber, SubscribeResponse, Topic,
@@ -23,12 +25,7 @@ impl Server {
         socket.bind(&format!("tcp://*:{}", port))?;
         info!("listening on port {}", port);
 
-        Ok(Server {
-            socket,
-            queue: HashMap::new(),
-            subscriptions: HashMap::new(),
-            client_put_sequences: HashMap::new(),
-        })
+        Ok(Self::read_server_state_from_disk(socket))
     }
 
     pub fn run(&mut self) {
@@ -90,7 +87,12 @@ impl Server {
                 );
                 return PutResponse::RepeatedMessage(*server_side_sequence_number);
             }
-            Ordering::Equal => *server_side_sequence_number += 1,
+            Ordering::Equal => {
+                *server_side_sequence_number += 1;
+
+                trace!("writing put sequences to disk");
+                Self::write_put_sequences_to_disk(&self.client_put_sequences);
+            }
         }
 
         match self.subscriptions.get(&message.topic) {
@@ -104,6 +106,9 @@ impl Server {
                         .get_mut(&(subscriber.to_owned(), message.topic.to_owned()))
                         .expect("subscriber does not have a message queue")
                         .push_back(data_rc.clone());
+
+                    trace!("writing queue state to disk");
+                    Self::write_queue_to_disk(&self.queue, &message.topic, subscriber);
                 }
             }
             None => debug!(
@@ -131,6 +136,8 @@ impl Server {
                         ?data,
                         "removed message from queue to send to the client"
                     );
+                    trace!("writing queue state to disk");
+                    Self::write_queue_to_disk(&self.queue, &topic, &subscriber);
                     GetResponse::Ok(Message {
                         topic,
                         data: data.to_vec(),
@@ -159,6 +166,7 @@ impl Server {
 
         let set = self.subscriptions.entry(topic).or_insert_with(HashSet::new);
         if set.insert(subscriber) {
+            Self::write_subscriptions_to_disk(&self.subscriptions);
             SubscribeResponse::Ok
         } else {
             debug!("topic was already subscribed");
@@ -177,6 +185,7 @@ impl Server {
 
         if set.remove(&subscriber) {
             debug!(subscriber, topic, "unsubscribed from topic");
+            Self::write_subscriptions_to_disk(&self.subscriptions);
             UnsubscribeResponse::Ok
         } else {
             debug!(
@@ -185,5 +194,118 @@ impl Server {
             );
             UnsubscribeResponse::NotSubscribed
         }
+    }
+
+    fn read_server_state_from_disk(socket: zmq::Socket) -> Server {
+        let subscriptions: HashMap<Topic, HashSet<ClientId>> =
+            match fs::File::open("server_data/subscribers.json") {
+                Ok(file) => serde_json::from_reader(file).unwrap(),
+                Err(err) if err.kind() == io::ErrorKind::NotFound => HashMap::new(),
+                Err(err) => panic!("failed to open subscribers file: {}", err),
+            };
+
+        let client_put_sequences: HashMap<Topic, HashMap<ClientId, SequenceNumber>> =
+            match fs::File::open("server_data/put_sequences.json") {
+                Ok(file) => serde_json::from_reader(file).unwrap(),
+                Err(err) if err.kind() == io::ErrorKind::NotFound => HashMap::new(),
+                Err(err) => panic!("failed to open put sequences file: {}", err),
+            };
+
+        let mut queue: HashMap<(ClientId, Topic), VecDeque<Rc<Vec<u8>>>> = HashMap::new();
+        if let Ok(dir) = fs::read_dir("server_data/queue") {
+            for entry in dir {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(err) => panic!("failed to read queue directory entry: {}", err),
+                };
+
+                let path = entry.path();
+                let metadata = match fs::metadata(&path) {
+                    Ok(metadata) => metadata,
+                    Err(err) => {
+                        warn!(
+                            "failed to read metadata for file {}: {}",
+                            path.display(),
+                            err
+                        );
+                        continue;
+                    }
+                };
+
+                if metadata.is_file() {
+                    let file_name = match path.file_name() {
+                        Some(file_name) => file_name.to_str().unwrap(),
+                        None => {
+                            warn!("failed to read file name for file {}", path.display());
+                            continue;
+                        }
+                    };
+                    let subscriber = match file_name.split_once('-') {
+                        Some((subscriber, _)) => subscriber,
+                        None => {
+                            warn!("failed to parse file name for file {}", path.display());
+                            continue;
+                        }
+                    };
+                    let topic = match file_name.split_once('-') {
+                        Some((_, topic)) => topic.split_once('.').unwrap_or(("", "")).0,
+                        None => {
+                            warn!("failed to parse file name for file {}", path.display());
+                            continue;
+                        }
+                    };
+                    let messages: VecDeque<Vec<u8>> =
+                        match fs::File::open(format!("server_data/queue/{}", file_name)) {
+                            Ok(file) => serde_json::from_reader(file).unwrap(),
+                            Err(err) if err.kind() == io::ErrorKind::NotFound => VecDeque::new(),
+                            Err(err) => panic!("failed to open put sequences file: {}", err),
+                        };
+                    queue.insert(
+                        (subscriber.to_owned(), topic.to_owned()),
+                        messages.iter().map(|m| Rc::new(m.to_vec())).collect(),
+                    );
+                }
+            }
+        }
+
+        Server {
+            socket,
+            subscriptions,
+            queue,
+            client_put_sequences,
+        }
+    }
+
+    fn write_subscriptions_to_disk(subscriptions: &HashMap<Topic, HashSet<ClientId>>) {
+        fs::create_dir_all("server_data").unwrap();
+        fs::write(
+            "server_data/subscribers.json",
+            serde_json::to_string(subscriptions).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn write_queue_to_disk(
+        queue: &HashMap<(ClientId, Topic), VecDeque<Rc<Vec<u8>>>>,
+        topic: &Topic,
+        subscriber: &ClientId,
+    ) {
+        fs::create_dir_all("server_data/queue").unwrap();
+        fs::write(
+            format!("server_data/queue/{}-{}.json", subscriber, topic),
+            serde_json::to_string(&queue.get(&(subscriber.to_owned(), topic.to_owned()))).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn write_put_sequences_to_disk(
+        client_put_sequences: &HashMap<Topic, HashMap<ClientId, SequenceNumber>>,
+    ) {
+        fs::create_dir_all("server_data").unwrap();
+        fs::write(
+            "server_data/put_sequences.json",
+            serde_json::to_string(client_put_sequences).unwrap(),
+        )
+        .unwrap();
     }
 }
