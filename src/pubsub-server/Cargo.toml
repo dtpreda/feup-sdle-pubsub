@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 pubsub-common = { path = "../pubsub-common" }
+serde = { version = "1.0", features = ["rc"] }
 serde_json = "1.0"
 tracing = "0.1.37"
 tracing-subscriber = "0.3.16"
