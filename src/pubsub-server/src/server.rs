@@ -1,17 +1,19 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 use tracing::{debug, info, span, trace, Level};
 
 use pubsub_common::{
-    GetResponse, Message, PutResponse, Request, SubscribeResponse, SubscriberId, Topic,
+    ClientId, GetResponse, Message, PutResponse, Request, SequenceNumber, SubscribeResponse, Topic,
     UnsubscribeResponse,
 };
 
 pub struct Server {
     socket: zmq::Socket,
-    queue: HashMap<SubscriberId, VecDeque<Rc<Message>>>,
-    subscriptions: HashMap<Topic, HashSet<SubscriberId>>,
+    queue: HashMap<ClientId, VecDeque<Rc<Message>>>,
+    subscriptions: HashMap<Topic, HashSet<ClientId>>,
+    client_put_sequences: HashMap<Topic, HashMap<ClientId, SequenceNumber>>,
 }
 
 impl Server {
@@ -25,6 +27,7 @@ impl Server {
             socket,
             queue: HashMap::new(),
             subscriptions: HashMap::new(),
+            client_put_sequences: HashMap::new(),
         })
     }
 
@@ -42,7 +45,7 @@ impl Server {
             trace!(?request);
 
             let response = match request {
-                Request::Put(m) => serde_json::to_vec(&self.put(m)),
+                Request::Put(m, i, s) => serde_json::to_vec(&self.put(m, i, s)),
                 Request::Get(s, t) => serde_json::to_vec(&self.get(s, t)),
                 Request::Subscribe(s, t) => serde_json::to_vec(&self.subscribe(s, t)),
                 Request::Unsubscribe(s, t) => serde_json::to_vec(&self.unsubscribe(s, t)),
@@ -54,9 +57,41 @@ impl Server {
         }
     }
 
-    fn put(&mut self, message: Message) -> PutResponse {
+    fn put(
+        &mut self,
+        message: Message,
+        publisher_id: ClientId,
+        client_sequence_number: SequenceNumber,
+    ) -> PutResponse {
         let span = span!(Level::DEBUG, "put");
         let _enter = span.enter();
+
+        let server_side_sequence_number = self
+            .client_put_sequences
+            .entry(message.topic.clone())
+            .or_default()
+            .entry(publisher_id)
+            .or_insert(0);
+        trace!(client_sequence_number, server_side_sequence_number);
+
+        match client_sequence_number.cmp(server_side_sequence_number) {
+            Ordering::Greater => {
+                debug!(
+                    expected = server_side_sequence_number,
+                    received = client_sequence_number,
+                    "received message is a few messages ahead of what was expected"
+                );
+                return PutResponse::InvalidSequenceNumber(*server_side_sequence_number);
+            }
+            Ordering::Less => {
+                debug!(
+                    seq = client_sequence_number,
+                    "client sent an already received message"
+                );
+                return PutResponse::RepeatedMessage(*server_side_sequence_number);
+            }
+            Ordering::Equal => *server_side_sequence_number += 1,
+        }
 
         match self.subscriptions.get(&message.topic) {
             Some(subscriber_set) => {
@@ -77,10 +112,10 @@ impl Server {
             ),
         }
 
-        PutResponse {}
+        PutResponse::Ok
     }
 
-    fn get(&mut self, subscriber: SubscriberId, topic: Topic) -> GetResponse {
+    fn get(&mut self, subscriber: ClientId, topic: Topic) -> GetResponse {
         let span = span!(Level::DEBUG, "get");
         let _enter = span.enter();
 
@@ -123,7 +158,7 @@ impl Server {
         }
     }
 
-    fn subscribe(&mut self, subscriber: SubscriberId, topic: Topic) -> SubscribeResponse {
+    fn subscribe(&mut self, subscriber: ClientId, topic: Topic) -> SubscribeResponse {
         let span = span!(Level::DEBUG, "subscribe");
         let _enter = span.enter();
         debug!(subscriber, topic, "subscribing to topic");
@@ -141,7 +176,7 @@ impl Server {
         }
     }
 
-    fn unsubscribe(&mut self, subscriber: SubscriberId, topic: Topic) -> UnsubscribeResponse {
+    fn unsubscribe(&mut self, subscriber: ClientId, topic: Topic) -> UnsubscribeResponse {
         let span = span!(Level::DEBUG, "unsubscribe");
         let _enter = span.enter();
 
