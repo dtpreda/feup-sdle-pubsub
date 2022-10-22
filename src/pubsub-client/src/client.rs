@@ -108,10 +108,12 @@ fn write_client_get_sequence_numbers(
     )
     .unwrap();
 
-    let mut file = fs::File::create("client_data/client_sequences.json.new").expect("Internal client error");
+    let mut file =
+        fs::File::create("client_data/client_sequences.json.new").expect("Internal client error");
     serde_json::to_writer(&mut file, &client_get_sequence_numbers).expect("Internal client error");
     file.sync_all().expect("Internal client error");
-    fs::rename("client_data/client_sequences.json.new", client_file_name).expect("Internal client error");
+    fs::rename("client_data/client_sequences.json.new", client_file_name)
+        .expect("Internal client error");
 }
 
 fn process_get(reply: GetResponse, id: &SubscriberId, topic: &Topic) -> () {
