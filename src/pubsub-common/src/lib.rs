@@ -28,7 +28,6 @@ pub enum PutResponse {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GetResponse {
     Ok(Message),
-    NotSubscribed,
     NoMessageAvailable,
 }
 

@@ -119,14 +119,6 @@ impl Server {
         let span = span!(Level::DEBUG, "get");
         let _enter = span.enter();
 
-        match self.subscriptions.get(&topic) {
-            Some(set) if set.contains(&subscriber) => {}
-            _ => {
-                debug!(subscriber, topic, "not subscribed to topic");
-                return GetResponse::NotSubscribed;
-            }
-        }
-
         match self.queue.get_mut(&subscriber) {
             Some(queue) => {
                 let index = queue
