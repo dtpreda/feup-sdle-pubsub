@@ -131,6 +131,10 @@ fn process_get(reply: GetResponse, id: &SubscriberId, topic: &Topic) -> () {
         GetResponse::NotSubscribed => eprintln!("You are not subscribed for that topic"),
         GetResponse::NoMessageAvailable => eprintln!("No message is available from that topic"),
         GetResponse::InvalidSequenceNumber(sn) => {
+            let mut client_get_sequence_numbers = read_client_get_sequence_numbers(&id);
+            client_get_sequence_numbers.insert(topic.to_owned(), sn);
+
+            write_client_get_sequence_numbers(client_get_sequence_numbers, id);
             eprintln!("Invalid sequence number. Should be: {}", sn)
         }
     }
