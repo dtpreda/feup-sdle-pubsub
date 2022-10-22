@@ -153,13 +153,9 @@ impl Server {
         let _enter = span.enter();
         debug!(subscriber, topic, "subscribing to topic");
 
-        if !self
-            .queue
-            .contains_key(&(subscriber.to_owned(), topic.to_owned()))
-        {
-            self.queue
-                .insert((subscriber.to_owned(), topic.to_owned()), VecDeque::new());
-        }
+        self.queue
+            .entry((subscriber.to_owned(), topic.to_owned()))
+            .or_insert_with(VecDeque::new);
 
         let set = self.subscriptions.entry(topic).or_insert_with(HashSet::new);
         if set.insert(subscriber) {
