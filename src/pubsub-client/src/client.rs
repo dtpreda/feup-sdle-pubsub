@@ -20,9 +20,16 @@ pub fn perform_operation(url: String, operation: Operation) -> Result<(), zmq::E
     receive_and_handle_response(&operation, &socket)
 }
 
+fn get_client_directory(id: &SubscriberId) -> String {
+    format!("client_data/{}", id)
+}
+
+fn get_client_file_name(id: &SubscriberId) -> String {
+    format!("client_data/{}/get_sequences.json", id)
+}
+
 fn read_client_get_sequence_numbers(id: &SubscriberId) -> HashMap<Topic, SequenceNumber> {
-    let mut client_file_name: String = String::from("client__get_sequences.json");
-    client_file_name.insert_str(7, &id);
+    let client_file_name: String = get_client_file_name(&id);
     match fs::File::open(client_file_name) {
         Ok(mut file) => serde_json::from_reader(&mut file).unwrap(),
         Err(_) => HashMap::new(),
@@ -91,8 +98,8 @@ fn write_client_get_sequence_numbers(
     client_get_sequence_numbers: HashMap<Topic, SequenceNumber>,
     id: &SubscriberId,
 ) {
-    let mut client_file_name: String = String::from("client__get_sequences.json");
-    client_file_name.insert_str(7, &id);
+    fs::create_dir_all(get_client_directory(&id)).unwrap();
+    let client_file_name: String = get_client_file_name(&id);
     let mut file = fs::File::create(&client_file_name).unwrap();
     file.write_all(
         serde_json::to_string(&client_get_sequence_numbers)
@@ -101,10 +108,10 @@ fn write_client_get_sequence_numbers(
     )
     .unwrap();
 
-    let mut file = fs::File::create("client_sequences.json.new").expect("Internal client error");
+    let mut file = fs::File::create("client_data/client_sequences.json.new").expect("Internal client error");
     serde_json::to_writer(&mut file, &client_get_sequence_numbers).expect("Internal client error");
     file.sync_all().expect("Internal client error");
-    fs::rename("client_sequences.json.new", client_file_name).expect("Internal client error");
+    fs::rename("client_data/client_sequences.json.new", client_file_name).expect("Internal client error");
 }
 
 fn process_get(reply: GetResponse, id: &SubscriberId, topic: &Topic) -> () {
