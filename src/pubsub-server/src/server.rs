@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
@@ -73,22 +74,24 @@ impl Server {
             .or_insert(0);
         trace!(client_sequence_number, server_side_sequence_number);
 
-        if *server_side_sequence_number > client_sequence_number {
-            debug!(
-                seq = client_sequence_number,
-                "client sent an already received message"
-            );
-            return PutResponse::RepeatedMessage(*server_side_sequence_number);
-        } else if *server_side_sequence_number < client_sequence_number {
-            debug!(
-                expected = server_side_sequence_number,
-                received = client_sequence_number,
-                "received message is a few messages ahead of what was expected"
-            );
-            return PutResponse::InvalidSequenceNumber(*server_side_sequence_number);
+        match client_sequence_number.cmp(server_side_sequence_number) {
+            Ordering::Greater => {
+                debug!(
+                    expected = server_side_sequence_number,
+                    received = client_sequence_number,
+                    "received message is a few messages ahead of what was expected"
+                );
+                return PutResponse::InvalidSequenceNumber(*server_side_sequence_number);
+            }
+            Ordering::Less => {
+                debug!(
+                    seq = client_sequence_number,
+                    "client sent an already received message"
+                );
+                return PutResponse::RepeatedMessage(*server_side_sequence_number);
+            }
+            Ordering::Equal => *server_side_sequence_number += 1,
         }
-
-        *server_side_sequence_number += 1;
 
         match self.subscriptions.get(&message.topic) {
             Some(subscriber_set) => {

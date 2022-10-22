@@ -118,7 +118,7 @@ fn process_put(
         }
     }
 
-    write_client_put_sequences_to_disk(&client_put_sequences, &client_id);
+    write_client_put_sequences_to_disk(client_put_sequences, client_id);
 }
 
 fn process_get(reply: GetResponse) {
@@ -167,9 +167,9 @@ fn write_client_put_sequences_to_disk(
 }
 
 fn read_client_put_sequences_from_disk(client_id: &ClientId) -> HashMap<Topic, SequenceNumber> {
-    return match fs::File::open(format!("client_data/{}/put_sequences.json", client_id)) {
+    match fs::File::open(format!("client_data/{}/put_sequences.json", client_id)) {
         Ok(file) => serde_json::from_reader(file).unwrap(),
         Err(err) if err.kind() == io::ErrorKind::NotFound => HashMap::new(),
         Err(err) => panic!("failed to open sequence numbers file: {}", err),
-    };
+    }
 }
