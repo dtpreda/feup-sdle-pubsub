@@ -20,7 +20,7 @@ pub fn perform_operation(url: String, operation: Operation) -> Result<(), zmq::E
     receive_and_handle_response(&operation, &socket)
 }
 
-fn get_client_get_sequence_numbers(id: &SubscriberId) -> HashMap<Topic, SequenceNumber> {
+fn read_client_get_sequence_numbers(id: &SubscriberId) -> HashMap<Topic, SequenceNumber> {
     let mut client_file_name: String = String::from("client__get_sequences.json");
     client_file_name.insert_str(7, &id);
     match fs::File::open(client_file_name) {
@@ -37,7 +37,7 @@ fn send_request(operation: &Operation, socket: &zmq::Socket) -> Result<(), zmq::
         }),
         Operation::Get { id, topic } => {
             let client_get_sequences: HashMap<Topic, SequenceNumber> =
-                get_client_get_sequence_numbers(&id);
+                read_client_get_sequence_numbers(&id);
             Request::Get(
                 id.to_string(),
                 topic.to_string(),
@@ -87,7 +87,7 @@ fn process_put(_: PutResponse) {
     println!("Message published successfully");
 }
 
-fn save_client_get_sequence_numbers(
+fn write_client_get_sequence_numbers(
     client_get_sequence_numbers: HashMap<Topic, SequenceNumber>,
     id: &SubscriberId,
 ) {
@@ -110,10 +110,10 @@ fn save_client_get_sequence_numbers(
 fn process_get(reply: GetResponse, id: &SubscriberId, topic: &Topic) -> () {
     match reply {
         GetResponse::Ok(seq_message) => {
-            let mut client_get_sequence_numbers = get_client_get_sequence_numbers(&id);
+            let mut client_get_sequence_numbers = read_client_get_sequence_numbers(&id);
             client_get_sequence_numbers.insert(topic.to_owned(), seq_message.sequence_number);
 
-            save_client_get_sequence_numbers(client_get_sequence_numbers, id);
+            write_client_get_sequence_numbers(client_get_sequence_numbers, id);
 
             io::stdout()
                 .write_all(&seq_message.message.data)
