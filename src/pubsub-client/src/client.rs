@@ -93,6 +93,7 @@ fn receive_and_handle_response(
             eprintln!("Service is unavailable: no response");
             return Err(zmq::Error::EAGAIN);
         }
+        eprintln!("Service is unavailable: retrying...");
     }
 
     match operation {
