@@ -148,7 +148,7 @@ fn process_get(
     topic: &Topic,
     client_id: &ClientId,
     client_get_sequences: &mut HashMap<Topic, SequenceNumber>,
-) -> () {
+) {
     match reply {
         GetResponse::Ok(seq_message) => {
             client_get_sequences.insert(topic.to_owned(), seq_message.sequence_number);

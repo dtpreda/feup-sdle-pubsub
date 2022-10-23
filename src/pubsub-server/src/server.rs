@@ -134,7 +134,7 @@ impl Server {
             .client_get_sequences
             .entry(topic.to_owned())
             .or_insert_with(HashMap::new)
-            .get(&subscriber.to_owned())
+            .get(&subscriber)
             .unwrap_or(&0);
         let is_first_message = *server_side_get_sequence_number == 0;
         let requesting_last_message =
@@ -154,19 +154,16 @@ impl Server {
         }
 
         if !is_first_message && requesting_new_message {
-            match self
+            if let Some(queue) = self
                 .queue
                 .get_mut(&(subscriber.to_owned(), topic.to_owned()))
             {
-                Some(queue) => {
-                    if queue.len() <= 1 {
-                        return GetResponse::NoMessageAvailable;
-                    }
-                    queue.pop_front();
-                    debug!(subscriber, topic, "removed acknowledged message from queue");
-                    trace!("writing queue state to disk");
+                if queue.len() <= 1 {
+                    return GetResponse::NoMessageAvailable;
                 }
-                _ => {}
+                queue.pop_front();
+                debug!(subscriber, topic, "removed acknowledged message from queue");
+                trace!("writing queue state to disk");
             }
         }
 
@@ -194,13 +191,13 @@ impl Server {
                     trace!("writing queue state to disk");
                     Self::write_queue_to_disk(&self.queue, &topic, &subscriber);
 
-                    return GetResponse::Ok(SequentialMessage {
+                    GetResponse::Ok(SequentialMessage {
                         message: Message {
                             topic: topic.clone(),
                             data: data.to_vec(),
                         },
                         sequence_number: requested_get_sequence_number + 1,
-                    });
+                    })
                 }
                 None => {
                     debug!(subscriber, topic, "queue is empty");
@@ -209,7 +206,7 @@ impl Server {
             },
             None => {
                 debug!(subscriber, topic, "queue does not exist");
-                return GetResponse::NoMessageAvailable;
+                GetResponse::NoMessageAvailable
             }
         }
     }
@@ -222,12 +219,9 @@ impl Server {
         self.queue
             .entry((subscriber.to_owned(), topic.to_owned()))
             .or_insert_with(VecDeque::new);
-        let set = self
-            .subscriptions
-            .entry(topic.to_owned())
-            .or_insert_with(HashSet::new);
+        let set = self.subscriptions.entry(topic).or_insert_with(HashSet::new);
 
-        if set.insert(subscriber.to_owned()) {
+        if set.insert(subscriber) {
             Self::write_subscriptions_to_disk(&self.subscriptions);
             SubscribeResponse::Ok
         } else {
