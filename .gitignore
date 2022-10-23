@@ -1,2 +1,4 @@
 src/target/
-**/client_data/**
+**client_data/
+**server_data/
+*tmp/

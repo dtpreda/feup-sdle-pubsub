@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub type Topic = String;
-pub type SubscriberId = String;
+pub type ClientId = String;
 pub type SequenceNumber = u64;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -18,19 +18,22 @@ pub struct SequentialMessage {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
-    Put(Message),
-    Get(SubscriberId, Topic, SequenceNumber),
-    Subscribe(SubscriberId, Topic),
-    Unsubscribe(SubscriberId, Topic),
+    Get(ClientId, Topic, SequenceNumber),
+    Put(Message, ClientId, SequenceNumber),
+    Subscribe(ClientId, Topic),
+    Unsubscribe(ClientId, Topic),
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub struct PutResponse;
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum PutResponse {
+    Ok,
+    RepeatedMessage(SequenceNumber),
+    InvalidSequenceNumber(SequenceNumber),
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GetResponse {
     Ok(SequentialMessage),
-    NotSubscribed,
     NoMessageAvailable,
     InvalidSequenceNumber(SequenceNumber),
 }
@@ -46,3 +49,6 @@ pub enum UnsubscribeResponse {
     Ok,
     NotSubscribed,
 }
+
+pub const MAX_RETRIES: u8 = 3;
+pub const RETRY_DELAY_MS: i32 = 2000;
