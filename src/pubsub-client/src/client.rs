@@ -139,6 +139,9 @@ fn process_put(
             client_put_sequences.insert(topic.to_string(), sequence_number);
             eprintln!("Invalid sequence number")
         }
+        PutResponse::InvalidTopicName(topic) => {
+            eprintln!("Invalid topic name: {}. Names cannot contain dashes", topic)
+        }
     }
     write_client_put_sequences_to_disk(client_put_sequences, client_id);
 }
@@ -171,6 +174,9 @@ fn process_subscribe(reply: SubscribeResponse) {
         SubscribeResponse::Ok => println!("Subscription done successfully"),
         SubscribeResponse::AlreadySubscribed => {
             eprintln!("You are already subscribed to that topic.")
+        }
+        SubscribeResponse::InvalidTopicName(topic) => {
+            eprintln!("Invalid topic name: {}. Names cannot contain dashes", topic)
         }
     }
 }
@@ -228,7 +234,6 @@ fn read_client_put_sequences_from_disk(client_id: &ClientId) -> HashMap<Topic, S
 
 fn read_client_get_sequences_from_disk(id: &ClientId) -> HashMap<Topic, SequenceNumber> {
     let client_file_name: String = format!("client_data/{}/get_sequences.json", id);
-    println!("Reading client sequences from file: {}", client_file_name);
     match fs::File::open(client_file_name) {
         Ok(mut file) => serde_json::from_reader(&mut file).unwrap(),
         Err(_) => HashMap::new(),

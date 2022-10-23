@@ -64,6 +64,11 @@ impl Server {
         let span = span!(Level::DEBUG, "put");
         let _enter = span.enter();
 
+        if message.topic.contains('-') {
+            debug!(message.topic, "invalid topic name");
+            return PutResponse::InvalidTopicName(message.topic);
+        }
+
         let server_side_sequence_number = self
             .client_put_sequences
             .entry(message.topic.clone())
@@ -215,6 +220,11 @@ impl Server {
         let span = span!(Level::DEBUG, "subscribe");
         let _enter = span.enter();
         debug!(subscriber, topic, "subscribing to topic");
+
+        if topic.contains('-') {
+            debug!(topic, "invalid topic name");
+            return SubscribeResponse::InvalidTopicName(topic);
+        }
 
         self.queue
             .entry((subscriber.to_owned(), topic.to_owned()))

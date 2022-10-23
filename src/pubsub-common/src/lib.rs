@@ -29,6 +29,7 @@ pub enum PutResponse {
     Ok,
     RepeatedMessage(SequenceNumber),
     InvalidSequenceNumber(SequenceNumber),
+    InvalidTopicName(Topic),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -38,13 +39,14 @@ pub enum GetResponse {
     InvalidSequenceNumber(SequenceNumber),
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SubscribeResponse {
     Ok,
     AlreadySubscribed,
+    InvalidTopicName(Topic),
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum UnsubscribeResponse {
     Ok,
     NotSubscribed,
