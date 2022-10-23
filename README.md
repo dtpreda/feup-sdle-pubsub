@@ -16,6 +16,8 @@ We have provided utility scripts for launching the server and the clients. For u
 
 The `client_loop.sh` script simulates a client background daemon, by launching clients repeatedly performing the same action. You can, for instance, get from a topic to get new messages in real time.
 
+> Beware that `cargo run` will operate silently, e.g., in a non-verbose mode, so that you can pipe the output of the programs if you need to. If the source code is not yet compiled on your machine, it might take a while for anything to happen. Just wait for some seconds as `cargo` compiles the application.
+
 ## The implementation
 
 For details about our implementation choices and system architecture, please check the report at [doc](doc/).
