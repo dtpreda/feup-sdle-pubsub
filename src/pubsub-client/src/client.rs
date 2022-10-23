@@ -93,6 +93,7 @@ fn receive_and_handle_response(
             eprintln!("Service is unavailable: no response");
             return Err(zmq::Error::EAGAIN);
         }
+        eprintln!("Service is unavailable: retrying...");
     }
 
     match operation {
@@ -228,7 +229,6 @@ fn read_client_put_sequences_from_disk(client_id: &ClientId) -> HashMap<Topic, S
 
 fn read_client_get_sequences_from_disk(id: &ClientId) -> HashMap<Topic, SequenceNumber> {
     let client_file_name: String = format!("client_data/{}/get_sequences.json", id);
-    println!("Reading client sequences from file: {}", client_file_name);
     match fs::File::open(client_file_name) {
         Ok(mut file) => serde_json::from_reader(&mut file).unwrap(),
         Err(_) => HashMap::new(),
