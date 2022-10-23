@@ -49,6 +49,10 @@ pub enum Operation {
 
 fn main() -> Result<(), zmq::Error> {
     let args = Args::parse();
+    if args.id.contains('/') || args.id.contains('-') {
+        eprintln!("Client ID must not contain '/' or '-'");
+        std::process::exit(1);
+    }
     perform_operation(args.id, args.url, args.operation)?;
     Ok(())
 }
