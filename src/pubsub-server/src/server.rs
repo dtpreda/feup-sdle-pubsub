@@ -7,14 +7,15 @@ use std::{fs, io};
 use tracing::{debug, info, span, trace, warn, Level};
 
 use pubsub_common::{
-    ClientId, GetResponse, Message, PutResponse, Request, SequenceNumber, SubscribeResponse, Topic,
-    UnsubscribeResponse,
+    ClientId, GetResponse, Message, PutResponse, Request, SequenceNumber, SequentialMessage,
+    SubscribeResponse, Topic, UnsubscribeResponse,
 };
 
 pub struct Server {
     socket: zmq::Socket,
     queue: HashMap<(ClientId, Topic), VecDeque<Rc<Vec<u8>>>>,
     subscriptions: HashMap<Topic, HashSet<ClientId>>,
+    client_get_sequences: HashMap<Topic, HashMap<ClientId, SequenceNumber>>,
     client_put_sequences: HashMap<Topic, HashMap<ClientId, SequenceNumber>>,
 }
 
@@ -42,8 +43,8 @@ impl Server {
             trace!(?request);
 
             let response = match request {
+                Request::Get(s, t, sn) => serde_json::to_vec(&self.get(s, t, sn)),
                 Request::Put(m, i, s) => serde_json::to_vec(&self.put(m, i, s)),
-                Request::Get(s, t) => serde_json::to_vec(&self.get(s, t)),
                 Request::Subscribe(s, t) => serde_json::to_vec(&self.subscribe(s, t)),
                 Request::Unsubscribe(s, t) => serde_json::to_vec(&self.unsubscribe(s, t)),
             }
@@ -120,16 +121,67 @@ impl Server {
         PutResponse::Ok
     }
 
-    fn get(&mut self, subscriber: ClientId, topic: Topic) -> GetResponse {
+    fn get(
+        &mut self,
+        subscriber: ClientId,
+        topic: Topic,
+        requested_get_sequence_number: SequenceNumber,
+    ) -> GetResponse {
         let span = span!(Level::DEBUG, "get");
         let _enter = span.enter();
 
-        match self
-            .queue
-            .get_mut(&(subscriber.to_owned(), topic.to_owned()))
-        {
-            Some(queue) => match queue.pop_front() {
+        let server_side_get_sequence_number = self
+            .client_get_sequences
+            .entry(topic.to_owned())
+            .or_insert_with(HashMap::new)
+            .get(&subscriber)
+            .unwrap_or(&0);
+        let is_first_message = *server_side_get_sequence_number == 0;
+        let requesting_last_message =
+            requested_get_sequence_number + 1 == *server_side_get_sequence_number;
+        let requesting_new_message =
+            requested_get_sequence_number == *server_side_get_sequence_number;
+
+        if !requesting_last_message && !requesting_new_message {
+            debug!(
+                subscriber,
+                topic,
+                requested_get_sequence_number,
+                server_side_get_sequence_number,
+                "client requested an invalid get sequence number"
+            );
+            return GetResponse::InvalidSequenceNumber(*server_side_get_sequence_number);
+        }
+
+        if !is_first_message && requesting_new_message {
+            if let Some(queue) = self
+                .queue
+                .get_mut(&(subscriber.to_owned(), topic.to_owned()))
+            {
+                if queue.len() <= 1 {
+                    return GetResponse::NoMessageAvailable;
+                }
+                queue.pop_front();
+                debug!(subscriber, topic, "removed acknowledged message from queue");
+                trace!("writing queue state to disk");
+            }
+        }
+
+        match self.queue.get(&(subscriber.to_owned(), topic.to_owned())) {
+            Some(queue) => match queue.front() {
                 Some(data) => {
+                    debug!(
+                        requested_get_sequence_number,
+                        subscriber, topic, "incrementing get sequence number"
+                    );
+                    self.client_get_sequences
+                        .get_mut(&topic)
+                        .unwrap()
+                        .insert(subscriber.to_owned(), requested_get_sequence_number + 1);
+
+                    trace!("writing get sequences to disk");
+                    Self::write_get_sequences_to_disk(&self.client_get_sequences);
+
                     debug!(
                         subscriber,
                         topic,
@@ -138,18 +190,22 @@ impl Server {
                     );
                     trace!("writing queue state to disk");
                     Self::write_queue_to_disk(&self.queue, &topic, &subscriber);
-                    GetResponse::Ok(Message {
-                        topic,
-                        data: data.to_vec(),
+
+                    GetResponse::Ok(SequentialMessage {
+                        message: Message {
+                            topic: topic.clone(),
+                            data: data.to_vec(),
+                        },
+                        sequence_number: requested_get_sequence_number + 1,
                     })
                 }
                 None => {
-                    debug!(subscriber, topic, "no messages available");
+                    debug!(subscriber, topic, "queue is empty");
                     GetResponse::NoMessageAvailable
                 }
             },
             None => {
-                debug!(subscriber, topic, "no messages available");
+                debug!(subscriber, topic, "queue does not exist");
                 GetResponse::NoMessageAvailable
             }
         }
@@ -163,8 +219,8 @@ impl Server {
         self.queue
             .entry((subscriber.to_owned(), topic.to_owned()))
             .or_insert_with(VecDeque::new);
-
         let set = self.subscriptions.entry(topic).or_insert_with(HashSet::new);
+
         if set.insert(subscriber) {
             Self::write_subscriptions_to_disk(&self.subscriptions);
             SubscribeResponse::Ok
@@ -209,6 +265,13 @@ impl Server {
                 Ok(file) => serde_json::from_reader(file).unwrap(),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => HashMap::new(),
                 Err(err) => panic!("failed to open put sequences file: {}", err),
+            };
+
+        let client_get_sequences: HashMap<Topic, HashMap<ClientId, SequenceNumber>> =
+            match fs::File::open("server_data/get_sequences.json") {
+                Ok(file) => serde_json::from_reader(file).unwrap(),
+                Err(err) if err.kind() == io::ErrorKind::NotFound => HashMap::new(),
+                Err(err) => panic!("failed to open get sequences file: {}", err),
             };
 
         let mut queue: HashMap<(ClientId, Topic), VecDeque<Rc<Vec<u8>>>> = HashMap::new();
@@ -273,6 +336,7 @@ impl Server {
             subscriptions,
             queue,
             client_put_sequences,
+            client_get_sequences,
         }
     }
 
@@ -305,6 +369,17 @@ impl Server {
         fs::write(
             "server_data/put_sequences.json",
             serde_json::to_string(client_put_sequences).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn write_get_sequences_to_disk(
+        client_get_sequences: &HashMap<Topic, HashMap<ClientId, SequenceNumber>>,
+    ) {
+        fs::create_dir_all("server_data").unwrap();
+        fs::write(
+            "server_data/get_sequences.json",
+            serde_json::to_string(client_get_sequences).unwrap(),
         )
         .unwrap();
     }

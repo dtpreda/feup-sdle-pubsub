@@ -1,9 +1,7 @@
-use std::{
-    collections::HashMap,
-    fs,
-    io::{self, Write},
-    path::PathBuf,
-};
+use std::collections::HashMap;
+use std::fs;
+use std::io::{self, Write};
+use std::path::PathBuf;
 
 use pubsub_common::{
     ClientId, GetResponse, Message, PutResponse, Request, SequenceNumber, SubscribeResponse, Topic,
@@ -25,9 +23,25 @@ pub fn perform_operation(
         .connect(&service_url)
         .expect("Service is unavailable: could not connect");
 
-    let mut client_put_sequences = read_client_put_sequences_from_disk(&client_id);
-    send_request(&client_id, &operation, &socket, &client_put_sequences)?;
-    receive_and_handle_response(&operation, &socket, &mut client_put_sequences, &client_id)
+    let mut client_get_sequences: HashMap<Topic, SequenceNumber> =
+        read_client_get_sequences_from_disk(&client_id);
+    let mut client_put_sequences: HashMap<Topic, SequenceNumber> =
+        read_client_put_sequences_from_disk(&client_id);
+
+    send_request(
+        &client_id,
+        &operation,
+        &socket,
+        &client_put_sequences,
+        &client_get_sequences,
+    )?;
+    receive_and_handle_response(
+        &client_id,
+        &operation,
+        &socket,
+        &mut client_put_sequences,
+        &mut client_get_sequences,
+    )
 }
 
 fn send_request(
@@ -35,6 +49,7 @@ fn send_request(
     operation: &Operation,
     socket: &zmq::Socket,
     client_put_sequences: &HashMap<Topic, SequenceNumber>,
+    client_get_sequences: &HashMap<Topic, SequenceNumber>,
 ) -> Result<(), zmq::Error> {
     let request: Request = match operation {
         Operation::Put { topic, message } => Request::Put(
@@ -45,7 +60,11 @@ fn send_request(
             client_id.to_string(),
             *client_put_sequences.get(topic).unwrap_or(&0),
         ),
-        Operation::Get { topic } => Request::Get(client_id.to_string(), topic.to_string()),
+        Operation::Get { topic } => Request::Get(
+            client_id.to_string(),
+            topic.to_string(),
+            *client_get_sequences.get(topic).unwrap_or(&0),
+        ),
         Operation::Subscribe { topic } => {
             Request::Subscribe(client_id.to_string(), topic.to_string())
         }
@@ -59,10 +78,11 @@ fn send_request(
 }
 
 fn receive_and_handle_response(
+    client_id: &ClientId,
     operation: &Operation,
     socket: &zmq::Socket,
     client_put_sequences: &mut HashMap<Topic, SequenceNumber>,
-    client_id: &ClientId,
+    client_get_sequences: &mut HashMap<Topic, SequenceNumber>,
 ) -> Result<(), zmq::Error> {
     let mut message = zmq::Message::new();
     for i in 0.. {
@@ -79,19 +99,22 @@ fn receive_and_handle_response(
         Operation::Put { topic, .. } => process_put(
             serde_json::from_slice::<PutResponse>(&message).unwrap(),
             topic,
-            client_put_sequences,
             client_id,
+            client_put_sequences,
         ),
-        Operation::Get { .. } => {
-            process_get(serde_json::from_slice::<GetResponse>(&message).unwrap())
-        }
+        Operation::Get { topic } => process_get(
+            serde_json::from_slice::<GetResponse>(&message).unwrap(),
+            topic,
+            client_id,
+            client_get_sequences,
+        ),
         Operation::Subscribe { .. } => {
             process_subscribe(serde_json::from_slice::<SubscribeResponse>(&message).unwrap())
         }
         Operation::Unsubscribe { .. } => {
             process_unsubscribe(serde_json::from_slice::<UnsubscribeResponse>(&message).unwrap())
         }
-    }
+    };
 
     Ok(())
 }
@@ -99,8 +122,8 @@ fn receive_and_handle_response(
 fn process_put(
     reply: PutResponse,
     topic: &Topic,
-    client_put_sequences: &mut HashMap<Topic, SequenceNumber>,
     client_id: &ClientId,
+    client_put_sequences: &mut HashMap<Topic, SequenceNumber>,
 ) {
     let client_sequence_number = client_put_sequences.get(topic).unwrap_or(&0);
     match reply {
@@ -117,16 +140,29 @@ fn process_put(
             eprintln!("Invalid sequence number")
         }
     }
-
     write_client_put_sequences_to_disk(client_put_sequences, client_id);
 }
 
-fn process_get(reply: GetResponse) {
+fn process_get(
+    reply: GetResponse,
+    topic: &Topic,
+    client_id: &ClientId,
+    client_get_sequences: &mut HashMap<Topic, SequenceNumber>,
+) {
     match reply {
-        GetResponse::Ok(message) => io::stdout()
-            .write_all(&message.data)
-            .expect("IO error while writing to stdout"),
+        GetResponse::Ok(seq_message) => {
+            client_get_sequences.insert(topic.to_owned(), seq_message.sequence_number);
+            write_client_get_sequences_to_disk(client_get_sequences, client_id);
+            io::stdout()
+                .write_all(&seq_message.message.data)
+                .expect("IO error while writing to stdout");
+        }
         GetResponse::NoMessageAvailable => eprintln!("No message is available from that topic"),
+        GetResponse::InvalidSequenceNumber(sn) => {
+            client_get_sequences.insert(topic.to_owned(), sn);
+            write_client_get_sequences_to_disk(client_get_sequences, client_id);
+            eprintln!("Invalid sequence number. Should be: {}", sn)
+        }
     }
 }
 
@@ -165,10 +201,36 @@ fn write_client_put_sequences_to_disk(
     fs::rename(temp_file_name, file_name).expect("Could not rename file");
 }
 
+fn write_client_get_sequences_to_disk(
+    client_get_sequences: &HashMap<Topic, SequenceNumber>,
+    client_id: &ClientId,
+) {
+    let mut dir = PathBuf::from("client_data");
+    dir.push(client_id);
+    fs::create_dir_all(&dir).expect("failed to create data directory");
+
+    let temp_file_name = dir.join("get_sequences.json.new");
+    let file_name = dir.join("get_sequences.json");
+
+    let mut file = fs::File::create(&temp_file_name).expect("Could not create file");
+    serde_json::to_writer(&mut file, &client_get_sequences).expect("Could not write to file");
+    file.sync_all().expect("Could not sync file");
+    fs::rename(temp_file_name, file_name).expect("Could not rename file");
+}
+
 fn read_client_put_sequences_from_disk(client_id: &ClientId) -> HashMap<Topic, SequenceNumber> {
     match fs::File::open(format!("client_data/{}/put_sequences.json", client_id)) {
         Ok(file) => serde_json::from_reader(file).unwrap(),
         Err(err) if err.kind() == io::ErrorKind::NotFound => HashMap::new(),
         Err(err) => panic!("failed to open sequence numbers file: {}", err),
+    }
+}
+
+fn read_client_get_sequences_from_disk(id: &ClientId) -> HashMap<Topic, SequenceNumber> {
+    let client_file_name: String = format!("client_data/{}/get_sequences.json", id);
+    println!("Reading client sequences from file: {}", client_file_name);
+    match fs::File::open(client_file_name) {
+        Ok(mut file) => serde_json::from_reader(&mut file).unwrap(),
+        Err(_) => HashMap::new(),
     }
 }

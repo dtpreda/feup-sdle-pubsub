@@ -11,9 +11,15 @@ pub struct Message {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SequentialMessage {
+    pub message: Message,
+    pub sequence_number: SequenceNumber,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Request {
+    Get(ClientId, Topic, SequenceNumber),
     Put(Message, ClientId, SequenceNumber),
-    Get(ClientId, Topic),
     Subscribe(ClientId, Topic),
     Unsubscribe(ClientId, Topic),
 }
@@ -27,8 +33,9 @@ pub enum PutResponse {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GetResponse {
-    Ok(Message),
+    Ok(SequentialMessage),
     NoMessageAvailable,
+    InvalidSequenceNumber(SequenceNumber),
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
