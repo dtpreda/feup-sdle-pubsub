@@ -1,15 +1,7 @@
 #!/bin/sh
-cd src
-
-while true
-do
-    if cargo run --bin pubsub-client -q -- "$@"; then
+DIR=$(dirname "$0")
+while cargo run -p pubsub-client --manifest-path "$DIR/src/Cargo.toml" --target-dir "$DIR/src/target" -q -- "$@"; do
         echo ""
         echo ""
         sleep 1
-    else
-        break
-    fi
 done
-
-cd ..
